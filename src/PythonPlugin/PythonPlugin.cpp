@@ -166,6 +166,10 @@ void PythonPlugin::onSigOptionsParsed(boost::program_options::variables_map& v)
 bool PythonPlugin::initializeInterpreter()
 {
     Py_Initialize();
+    int argc = 1;
+    char *argv[1];
+    argv[0] = "";
+    PySys_SetArgvEx(argc, argv, 0);
 
     mainModule = python::import("__main__");
     mainNamespace = mainModule.attr("__dict__");
