@@ -47,7 +47,7 @@ BOX25-15: &BOX25-05
       appearance: *APP
     RigidBody:
       centerOfMass: [ 0, 0, 0 ]
-      mass: 23.4375
+      mass: 1.5
       inertia: [
         0.01041667 , 0,          0,
         0,           0.01041667, 0,

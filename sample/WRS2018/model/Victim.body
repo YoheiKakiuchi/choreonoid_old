@@ -7,8 +7,9 @@ rootLink: WAIST
 JOINT_COMPLIANCE: &JOINT_COMPLIANCE
   actuationMode: jointAngle
   jointLock: true
-  jointLockCompliance: 1.0
-  jointLockForceRange: [ -20.0, 20.0 ]
+  jointLockCompliance: 0.05
+  jointLockForceRange: [ -5.0, 5.0 ]
+  rotorInertia: 0.5
 
 links:
   -
@@ -40,7 +41,6 @@ links:
       0,       0.001, 0,
       0,       0,     0.001 ]
     <<: *JOINT_COMPLIANCE
-    jointLockCompliance: 0.01
     jointAngle: 0
   -
     name: LUMBAR_P
@@ -361,7 +361,6 @@ links:
       0,       0.029792, 0,
       0,       0,       0.025536 ]
     <<: *JOINT_COMPLIANCE
-    jointLockCompliance: 0.01
     jointAngle: -8.2
     elements:
       -
@@ -469,7 +468,6 @@ links:
       0,       0.029792, 0,
       0,       0,       0.025536 ]
     <<: *JOINT_COMPLIANCE
-    jointLockCompliance: 0.01
     jointAngle: -8.2
     elements:
       -

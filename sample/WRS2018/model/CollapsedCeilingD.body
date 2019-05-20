@@ -6,11 +6,11 @@ links:
   -
     name: body
     jointType: free
-    mass: 1000.0
+    mass: 10.0
     inertia: [
-      480, 0, 0,
-      0, 480, 0,
-      0, 0, 960 ]
+      4.8, 0, 0,
+      0, 4.8, 0,
+      0, 0, 9.6 ]
     material: Ground
     elements:
       Shape:

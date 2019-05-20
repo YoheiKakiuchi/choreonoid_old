@@ -18,7 +18,7 @@ BOX50-1: &BOX50-1
       appearance: *APP
     RigidBody:
       centerOfMass: [ 0, 0, 0 ]
-      mass: 125
+      mass: 2.5
       inertia: [
         0.04166667 , 0,          0,
         0,           0.04166667, 0,
