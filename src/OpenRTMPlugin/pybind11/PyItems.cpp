@@ -50,6 +50,7 @@ void exportItems(py::module m)
 
     py::class_<BodyRTCItem, BodyRTCItemPtr, ControllerItem> bodyRTCItemClass(m, "BodyRTCItem");
     bodyRTCItemClass
+        .def(py::init<>())
         .def("setControllerModule", &BodyRTCItem::setControllerModule)
         .def("setConfigMode", &BodyRTCItem::setConfigMode)
         .def("setConfigFile", &BodyRTCItem::setConfigFile)
