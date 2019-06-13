@@ -21,9 +21,9 @@ definitions:
       specularColor: [ 0.6, 0.6, 0.6 ]
       shinines: 0.3
   CAMERA_SPEC:
-    format: &CAMERA_SPEC_format COLOR
+    format: &CAMERA_SPEC_format COLOR_DEPTH
     fieldOfView: &CAMERA_SPEC_fieldOfView 117.5
-    width: &CAMERA_SPEC_width 640
+    width: &CAMERA_SPEC_width   640
     height: &CAMERA_SPEC_height 480
     frameRate: &CAMERA_SPEC_frameRate 30
 
@@ -430,8 +430,20 @@ links:
         height: *CAMERA_SPEC_height
         frameRate: *CAMERA_SPEC_frameRate
         on: true
-        nearClipDistance: 0.02
-        #farClipDistance: 3.5
+        nearClipDistance: 0.024
+        farClipDistance:  25
+      -
+        type: SpotLight
+        name: CAMERA_Spot
+        translation: [ 0, 0, 0.1055 ]
+        #rotation: [ 0, 1, 0, 180 ]
+        on: true
+        color: [1, 1, 1]
+        intensity: 1.0
+        direction: [0, 0, 1]
+        beamWidth: 100
+        cutOffAngle: 90
+        # attenuation: [1, 0, 0.01]
   -
     name: FINGER1
     parent: HAND
