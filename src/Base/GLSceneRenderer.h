@@ -53,7 +53,11 @@ public:
     const Vector3f& defaultColor() const;
     void setDefaultColor(const Vector3f& color);
 
-    virtual void setDefaultLighting(bool on) = 0;
+    enum LightingMode {
+        FULL_LIGHTING, MINIMUM_LIGHTING, SOLID_COLOR_LIGHTING, NO_LIGHTING, N_LIGHTING_MODES
+    };
+    virtual void setLightingMode(int mode) = 0;
+    
     virtual void clearShadows();
     virtual void enableShadowOfLight(int index, bool on = true);
     virtual void enableShadowAntiAliasing(bool on);
@@ -89,6 +93,8 @@ public:
 
     virtual void setBackFaceCullingMode(int mode) = 0;
     virtual int backFaceCullingMode() const = 0;
+
+    virtual void setBoundingBoxRenderingForLightweightRenderingGroupEnabled(bool on);
 
 protected:
     virtual void onSceneGraphUpdated(const SgUpdate& update) override;

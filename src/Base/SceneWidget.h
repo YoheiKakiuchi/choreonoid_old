@@ -12,6 +12,7 @@
 
 namespace cnoid {
 
+class ExtensionManager;
 class SceneWidgetImpl;
 class SceneRenderer;
 class Archive;
@@ -25,6 +26,7 @@ class InteractiveCameraTransform;
 class CNOID_EXPORT SceneWidget : public Widget
 {
 public:
+    static void initializeClass(ExtensionManager* ext);
     static SignalProxy<void(SceneWidget*)> sigSceneWidgetCreated();
 
     SceneWidget();
@@ -37,12 +39,15 @@ public:
 
     SceneRenderer* renderer();
 
+    void draw();
+
     SignalProxy<void()> sigStateChanged() const;
 
     void setEditMode(bool on);
     bool isEditMode() const;
 
     const SceneWidgetEvent& latestEvent() const;
+    Vector3 lastClickedPoint() const;
 
     enum ViewpointControlMode { THIRD_PERSON_MODE, FIRST_PERSON_MODE  };
     void setViewpointControlMode(ViewpointControlMode mode);

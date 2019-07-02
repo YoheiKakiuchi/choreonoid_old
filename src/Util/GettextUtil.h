@@ -12,9 +12,7 @@
 
 #include <boost/format.hpp>
 
-#define CNOID_ENABLE_GETTEXT 1
-
-#if CNOID_ENABLE_GETTEXT
+#ifdef CNOID_ENABLE_GETTEXT
 # include <libintl.h>
 
 # ifdef CNOID_USE_GETTEXT_WRAPPER

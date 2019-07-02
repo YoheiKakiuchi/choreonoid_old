@@ -22,14 +22,16 @@
 #include "MenuManager.h"
 #include "Timer.h"
 #include "LazyCaller.h"
+#include "AppConfig.h"
 #include <cnoid/Selection>
 #include <cnoid/EigenArchive>
 #include <cnoid/SceneCameras>
 #include <cnoid/SceneLights>
 #include <cnoid/CoordinateAxesOverlay>
 #include <cnoid/ConnectionSet>
-#include <QGLWidget>
-#include <QGLPixelBuffer>
+#include <QOpenGLWidget>
+#include <QOpenGLContext>
+#include <QSurfaceFormat>
 #include <QLabel>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -38,6 +40,7 @@
 #include <QColorDialog>
 #include <QElapsedTimer>
 #include <QMessageBox>
+#include <QCoreApplication>
 #include <fmt/format.h>
 #include <set>
 #include <iostream>
@@ -59,6 +62,11 @@ const bool SHOW_IMAGE_FOR_PICKING = false;
 const int NUM_SHADOWS = 2;
 
 enum { FLOOR_GRID = 0, XZ_GRID = 1, YZ_GRID = 2 };
+
+Signal<void()> sigVSyncModeChanged;
+
+bool isLowMemoryConsumptionMode;
+Signal<void(bool on)> sigLowMemoryConsumptionModeChanged;
 
 class EditableExtractor : public PolymorphicFunctionSet<SgNode>
 {
@@ -98,7 +106,11 @@ public:
     SpinBox fieldOfViewSpin;
     DoubleSpinBox zNearSpin;
     DoubleSpinBox zFarSpin;
-    CheckBox lightingCheck;
+    Selection lightingMode;
+    ButtonGroup lightingModeGroup;
+    RadioButton fullLightingRadio;
+    RadioButton minLightingRadio;
+    RadioButton solidColorLightingRadio;
     CheckBox smoothShadingCheck;
     Selection cullingMode;
     ButtonGroup cullingModeGroup;
@@ -130,6 +142,7 @@ public:
     Connection pointRenderingModeCheckConnection;
     CheckBox normalVisualizationCheck;
     DoubleSpinBox normalLengthSpin;
+    CheckBox lightweightViewChangeCheck;
     CheckBox coordinateAxesCheck;
     CheckBox fpsCheck;
     PushButton fpsTestButton;
@@ -180,8 +193,10 @@ Signal<void(SceneWidget*)> sigSceneWidgetCreated;
 
 namespace cnoid {
 
-class SceneWidgetImpl : public QGLWidget
+class SceneWidgetImpl : public QOpenGLWidget
 {
+    friend class SceneWidget;
+    
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
@@ -197,13 +212,15 @@ public:
     SgUpdate added;
     SgUpdate removed;
 
+    InteractiveCameraTransformPtr interactiveCameraTransform;
     InteractiveCameraTransformPtr builtinCameraTransform;
     SgPerspectiveCameraPtr builtinPersCamera;
     SgOrthographicCameraPtr builtinOrthoCamera;
     int numBuiltinCameras;
     bool isBuiltinCameraCurrent;
-
-    InteractiveCameraTransformPtr interactiveCameraTransform;
+    bool isLightweightViewChangeEnabled;
+    bool isCameraPositionInteractivelyChanged;
+    Timer timerToRenderNormallyAfterInteractiveCameraPositionChange;
 
     SgDirectionalLightPtr worldLight;
 
@@ -216,6 +233,12 @@ public:
     bool isFirstPersonMode() const { return (viewpointControlMode.which() != SceneWidget::THIRD_PERSON_MODE); }
         
     enum DragMode { NO_DRAGGING, EDITING, VIEW_ROTATION, VIEW_TRANSLATION, VIEW_ZOOM } dragMode;
+
+    bool isDraggingView() const {
+        return (dragMode == VIEW_ROTATION ||
+                dragMode == VIEW_TRANSLATION ||
+                dragMode == VIEW_ZOOM);
+    }
 
     set<SceneWidgetEditable*> editableEntities;
 
@@ -259,6 +282,8 @@ public:
     int fpsCounter;
     Timer fpsRenderingTimer;
     bool fpsRendered;
+    bool isDoingFPSTest;
+    bool isFPSTestCanceled;
 
     ConfigDialog* config;
     QLabel* indicatorLabel;
@@ -273,12 +298,20 @@ public:
     int profiling_mode;
 #endif
 
-    SceneWidgetImpl(QGLFormat& format, bool useGLSL, SceneWidget* self);
+    static void onOpenGLVSyncToggled(bool on, bool doConfigOutput);
+    static void onLowMemoryConsumptionModeChanged(bool on, bool doConfigOutput);
+
+    SceneWidgetImpl(SceneWidget* self, bool useGLSL);
     ~SceneWidgetImpl();
+
+    void onVSyncModeChanged();
+    void onLowMemoryConsumptionModeChanged(bool on);
 
     virtual void initializeGL();
     virtual void resizeGL(int width, int height);
     virtual void paintGL();
+
+    void tryToResumeNormalRendering();
 
     void updateGrids();
     SgLineSet* createGrid(int index);
@@ -286,6 +319,7 @@ public:
     void onSceneGraphUpdated(const SgUpdate& update);
 
     void showFPS(bool on);
+    void onFPSTestButtonClicked();
     void doFPSTest();
     void onFPSUpdateRequest();
     void onFPSRenderingRequest();
@@ -308,7 +342,6 @@ public:
     void setCollisionLinesVisible(bool on);
     void onFieldOfViewChanged(double fov);
     void onClippingDepthChanged();
-    void onLightingToggled(bool on);
     void onSmoothShadingToggled(bool on);
     void updateDefaultLights();
     void onNormalVisualizationChanged();
@@ -328,7 +361,7 @@ public:
     void updateLatestEvent(QKeyEvent* event);
     void updateLatestEvent(int x, int y, int modifiers);
     void updateLatestEvent(QMouseEvent* event);
-    bool updateLatestEventPath();
+    void updateLatestEventPath(bool forceFullPicking = false);
     void updateLastClickedPoint();
         
     SceneWidgetEditable* applyFunction(
@@ -356,6 +389,7 @@ public:
     void startViewZoom();
     void dragViewZoom();
     void zoomView(double ratio);
+    void notifyCameraPositionInteractivelyChanged();
 
     void rotateBuiltinCameraView(double dPitch, double dYaw);
     void translateBuiltinCameraView(const Vector3& dp_local);
@@ -377,6 +411,51 @@ public:
     void restoreCurrentCamera(const Mapping& cameraData);
 };
 
+}
+
+
+void SceneWidget::initializeClass(ExtensionManager* ext)
+{
+    // OpenGL vsync setting
+    Mapping* glConfig = AppConfig::archive()->openMapping("OpenGL");
+    auto& mm = ext->menuManager();
+
+    bool isVSyncEnabled = (glConfig->get("vsync", 0) > 0);
+    auto vsyncItem = mm.setPath("/Options/OpenGL").addCheckItem(_("Vertical sync"));
+    vsyncItem->setChecked(isVSyncEnabled);
+    vsyncItem->sigToggled().connect([&](bool on){ SceneWidgetImpl::onOpenGLVSyncToggled(on, true); });
+    SceneWidgetImpl::onOpenGLVSyncToggled(isVSyncEnabled, false);
+
+    isLowMemoryConsumptionMode = glConfig->get("lowMemoryConsumption", false);
+    auto memoryItem = mm.addCheckItem(_("Low GPU memory consumption mode"));
+    memoryItem->setChecked(isLowMemoryConsumptionMode);
+    memoryItem->sigToggled().connect([&](bool on){ SceneWidgetImpl::onLowMemoryConsumptionModeChanged(on, true); });
+    SceneWidgetImpl::onLowMemoryConsumptionModeChanged(isVSyncEnabled, false);
+}
+
+
+void SceneWidgetImpl::onOpenGLVSyncToggled(bool on, bool doConfigOutput)
+{
+    auto format = QSurfaceFormat::defaultFormat();
+    format.setSwapInterval(on ? 1 : 0);
+    QSurfaceFormat::setDefaultFormat(format);
+    sigVSyncModeChanged();
+
+    if(doConfigOutput){
+        Mapping* glConfig = AppConfig::archive()->openMapping("OpenGL");
+        glConfig->write("vsync", (on ? 1 : 0));
+    }
+}
+
+
+void SceneWidgetImpl::onLowMemoryConsumptionModeChanged(bool on, bool doConfigOutput)
+{
+    sigLowMemoryConsumptionModeChanged(on);
+
+    if(doConfigOutput){
+        Mapping* glConfig = AppConfig::archive()->openMapping("OpenGL");
+        glConfig->write("lowMemoryConsumption", on);
+    }
 }
 
 
@@ -427,15 +506,7 @@ void SceneWidget::forEachInstance(SgNode* node, std::function<void(SceneWidget* 
 SceneWidget::SceneWidget()
 {
     bool useGLSL = (getenv("CNOID_USE_GLSL") != 0);
-
-    QGLFormat format;
-    if(useGLSL){
-        format.setVersion(3, 3);
-        //format.setVersion(4, 4);
-        format.setProfile(QGLFormat::CoreProfile);
-    }
-    
-    impl = new SceneWidgetImpl(format, useGLSL, this);
+    impl = new SceneWidgetImpl(this, useGLSL);
 
     QVBoxLayout* vbox = new QVBoxLayout();
     vbox->setContentsMargins(0, 0, 0, 0);
@@ -446,8 +517,8 @@ SceneWidget::SceneWidget()
 }
 
 
-SceneWidgetImpl::SceneWidgetImpl(QGLFormat& format, bool useGLSL, SceneWidget* self)
-    : QGLWidget(format, self),
+SceneWidgetImpl::SceneWidgetImpl(SceneWidget* self, bool useGLSL)
+    : QOpenGLWidget(self),
       self(self),
       os(MessageView::mainInstance()->cout()),
       sceneRoot(new SceneWidgetRoot(self)),
@@ -455,20 +526,12 @@ SceneWidgetImpl::SceneWidgetImpl(QGLFormat& format, bool useGLSL, SceneWidget* s
       emitSigStateChangedLater(std::ref(sigStateChanged)),
       updateGridsLater([this](){ updateGrids(); })
 {
-    if(false){ // test
-        cout << "swapInterval = " << QGLWidget::format().swapInterval() << endl;
-        QGLFormat glfmt = QGLWidget::format();
-        glfmt.setSwapInterval(0);
-        QGLWidget::setFormat(glfmt);
-        cout << "swapInterval = " << QGLWidget::format().swapInterval() << endl;
-    }
-    
     setFocusPolicy(Qt::WheelFocus);
 
-    setAutoBufferSwap(true);
-
     if(useGLSL){
-        renderer = new GLSLSceneRenderer(sceneRoot);
+        auto r = new GLSLSceneRenderer(sceneRoot);
+        r->setLowMemoryConsumptionMode(isLowMemoryConsumptionMode);
+        renderer = r;
     } else {
         renderer = new GL1SceneRenderer(sceneRoot);
     }
@@ -511,9 +574,7 @@ SceneWidgetImpl::SceneWidgetImpl(QGLFormat& format, bool useGLSL, SceneWidget* s
     focusedEditable = 0;
 
     latestEvent.sceneWidget_ = self;
-
     lastClickedPoint.setZero();
-
     eventFilter = 0;
     
     indicatorLabel = new QLabel();
@@ -542,6 +603,11 @@ SceneWidgetImpl::SceneWidgetImpl(QGLFormat& format, bool useGLSL, SceneWidget* s
     isBuiltinCameraCurrent = true;
     numBuiltinCameras = 2;
     systemGroup->addChild(builtinCameraTransform);
+    isLightweightViewChangeEnabled = false;
+    isCameraPositionInteractivelyChanged = false;
+    timerToRenderNormallyAfterInteractiveCameraPositionChange.setSingleShot(true);
+    timerToRenderNormallyAfterInteractiveCameraPositionChange.sigTimeout().connect(
+        [&](){ tryToResumeNormalRendering(); });
 
     config = new ConfigDialog(this, useGLSL);
     config->updateBuiltinCameraConfig();
@@ -575,6 +641,11 @@ SceneWidgetImpl::SceneWidgetImpl(QGLFormat& format, bool useGLSL, SceneWidget* s
         fpsRenderingTimer.setSingleShot(true);
         fpsRenderingTimer.sigTimeout().connect([&](){ onFPSRenderingRequest(); });
     }
+    isDoingFPSTest = false;
+
+    sigVSyncModeChanged.connect([&](){ onVSyncModeChanged(); });
+    sigLowMemoryConsumptionModeChanged.connect(
+        [&](bool on){ onLowMemoryConsumptionModeChanged(on); });
 
 #ifdef ENABLE_SIMULATION_PROFILING
     profiling_mode = 1;
@@ -598,6 +669,27 @@ SceneWidgetImpl::~SceneWidgetImpl()
 }
 
 
+void SceneWidgetImpl::onVSyncModeChanged()
+{
+    /**
+       We want to change the swap interval value when the vsync configuration is changed.
+       However, resetting the format is not valied for the QOpenGLWidget instance that
+       has been initialized.
+       To change the swap interval, the QOpenGLWiget instance must probably be recreated.
+    */
+    //setFormat(QSurfaceFormat::defaultFormat());
+}
+
+
+void SceneWidgetImpl::onLowMemoryConsumptionModeChanged(bool on)
+{
+    if(auto glslRenderer = dynamic_cast<GLSLSceneRenderer*>(renderer)){
+        glslRenderer->setLowMemoryConsumptionMode(on);
+        update();
+    }
+}
+
+
 SceneWidgetRoot* SceneWidget::sceneRoot()
 {
     return impl->sceneRoot;
@@ -616,6 +708,17 @@ SceneRenderer* SceneWidget::renderer()
 }
 
 
+/**
+   Draw the scene immediately.
+   \note This function is only used to force rendering when testing rendering performance, etc.
+*/
+void SceneWidget::draw()
+{
+    impl->repaint();
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents|QEventLoop::ExcludeSocketNotifiers);
+}
+
+
 QWidget* SceneWidget::indicator()
 {
     return impl->indicatorLabel;
@@ -631,11 +734,6 @@ void SceneWidgetImpl::initializeGL()
     if(!renderer->initializeGL()){
         os << "OpenGL initialization failed." << endl;
         // This view shoulbe be disabled when the glew initialization is failed.
-    } else {
-#ifdef _WIN32
-        // Qt5 does not seem to support setting the swap interval for QGLWidget.
-        renderer->setSwapInterval(QGLFormat::defaultFormat().swapInterval());
-#endif
     }
 }
 
@@ -695,6 +793,22 @@ void SceneWidgetImpl::paintGL()
         os << "SceneWidgetImpl::paintGL() " << counter++ << endl;
     }
 
+    bool isLightweightViewChangeActive = false;
+    if(isLightweightViewChangeEnabled){
+        isLightweightViewChangeActive = isCameraPositionInteractivelyChanged;
+    }
+    isCameraPositionInteractivelyChanged = false;
+    
+    renderer->setBoundingBoxRenderingForLightweightRenderingGroupEnabled(
+        isLightweightViewChangeActive);
+
+    if(isLightweightViewChangeActive){
+        timerToRenderNormallyAfterInteractiveCameraPositionChange.start(
+            isDraggingView() ? 0 : 400);
+    } else if(timerToRenderNormallyAfterInteractiveCameraPositionChange.isActive()){
+        timerToRenderNormallyAfterInteractiveCameraPositionChange.stop();
+    }
+
     renderer->render();
 
     if(fpsTimer.isActive()){
@@ -734,10 +848,22 @@ void SceneWidgetImpl::paintGL()
 }
 
 
+void SceneWidgetImpl::tryToResumeNormalRendering()
+{
+    if(isDraggingView()){
+        timerToRenderNormallyAfterInteractiveCameraPositionChange.start(0);
+    } else {
+        update();
+    }
+}
+
+
 void SceneWidgetImpl::renderFPS()
 {
+    /*
     renderer->setColor(Vector3f(1.0f, 1.0f, 1.0f));
     renderText(20, 20, QString("FPS: %1").arg(fps));
+    */
     fpsRendered = true;
     ++fpsCounter;
 }
@@ -776,37 +902,61 @@ void SceneWidgetImpl::showFPS(bool on)
 }
 
 
+void SceneWidgetImpl::onFPSTestButtonClicked()
+{
+    if(!isDoingFPSTest){
+        auto& button = config->fpsTestButton;
+        auto label = button.text();
+        button.setText(_("Cancel"));
+        doFPSTest();
+        button.setText(label);
+    } else {
+        isFPSTestCanceled = true;
+    }
+}
+        
+
 void SceneWidgetImpl::doFPSTest()
 {
+    isDoingFPSTest = true;
+    isFPSTestCanceled = false;
+    
     const Vector3 p = lastClickedPoint;
     const Affine3 C = builtinCameraTransform->T();
 
     QElapsedTimer timer;
     timer.start();
 
+    int numFrames = 0;
     const int n = config->fpsTestIterationSpin.value();
     for(int i=0; i < n; ++i){
         for(double theta=1.0; theta <= 360.0; theta += 1.0){
-            double a = 3.14159265 * theta / 180.0;
+            double a = radian(theta);
             builtinCameraTransform->setTransform(
-                normalizedCameraTransform(
-                    Translation3(p) *
-                    AngleAxis(a, Vector3::UnitZ()) *
-                    Translation3(-p) *
-                    C));
-            glDraw();
+                Translation3(p) *
+                AngleAxis(a, Vector3::UnitZ()) *
+                Translation3(-p) *
+                C);
+            repaint();
+            QCoreApplication::processEvents();
+            ++numFrames;
+            if(isFPSTestCanceled){
+                break;
+            }
         }
     }
 
     double time = timer.elapsed() / 1000.0;
-    const int numFrames = n * 360;
     fps = numFrames / time;
     fpsCounter = 0;
+
+    builtinCameraTransform->setTransform(C);
+    update();
 
     QMessageBox::information(config, _("FPS Test Result"),
                              QString(_("FPS: %1 frames / %2 [s] = %3")).arg(numFrames).arg(time).arg(fps));
 
-    update();
+    isDoingFPSTest = false;
 }
 
 
@@ -882,6 +1032,12 @@ const SceneWidgetEvent& SceneWidget::latestEvent() const
 }
 
 
+Vector3 SceneWidget::lastClickedPoint() const
+{
+    return impl->lastClickedPoint;
+}
+
+
 void SceneWidget::setViewpointControlMode(ViewpointControlMode mode)
 {
     impl->viewpointControlMode.select(mode);
@@ -935,7 +1091,6 @@ void SceneWidgetImpl::viewAll()
     }
 
     interactiveCameraTransform->notifyUpdate(modified);
-    interactiveCameraTransform->onPositionUpdatedInteractively();
 }
 
 
@@ -976,14 +1131,20 @@ void SceneWidgetImpl::updateLatestEvent(QMouseEvent* event)
 }
 
 
-bool SceneWidgetImpl::updateLatestEventPath()
+void SceneWidgetImpl::updateLatestEventPath(bool forceFullPicking)
 {
-    QGLWidget::makeCurrent();
+    if(!forceFullPicking && isLightweightViewChangeEnabled){
+        return;
+    }
+    
+    makeCurrent();
 
     bool picked = renderer->pick(latestEvent.x(), latestEvent.y());
 
     if(SHOW_IMAGE_FOR_PICKING){
-        swapBuffers();
+        // This does not work
+        auto cxt = context();
+        cxt->swapBuffers(cxt->surface());
     }
     doneCurrent();
 
@@ -1002,8 +1163,6 @@ bool SceneWidgetImpl::updateLatestEventPath()
             }
         }
     }
-
-    return picked;
 }
 
 
@@ -1387,7 +1546,7 @@ void SceneWidgetImpl::updatePointerPosition()
         os << "SceneWidgetImpl::updatePointerPosition()" << endl;
     }
 
-    updateLatestEventPath();
+    updateLatestEventPath(true);
     
     if(!isEditMode){
         static string f1(_("Global Position: ({0:.3f} {1:.3f} {2:.3f})"));
@@ -1608,8 +1767,7 @@ void SceneWidgetImpl::dragViewRotation()
         T.linear() = S;
     }
     
-    interactiveCameraTransform->notifyUpdate(modified);
-    interactiveCameraTransform->onPositionUpdatedInteractively();
+    notifyCameraPositionInteractivelyChanged();
 }
 
 
@@ -1677,8 +1835,7 @@ void SceneWidgetImpl::dragViewTranslation()
             Translation3(-dx * SgCamera::right(orgCameraPosition)) *
             orgCameraPosition));
     
-    interactiveCameraTransform->notifyUpdate(modified);
-    interactiveCameraTransform->onPositionUpdatedInteractively();
+    notifyCameraPositionInteractivelyChanged();
 }
 
 
@@ -1727,13 +1884,13 @@ void SceneWidgetImpl::dragViewZoom()
             const double l0 = (lastClickedPoint - C.translation()).dot(v);
             interactiveCameraTransform->setTranslation(C.translation() + v * (l0 * (-ratio + 1.0)));
         }
-        interactiveCameraTransform->notifyUpdate(modified);
-        interactiveCameraTransform->onPositionUpdatedInteractively();
 
     } else if(SgOrthographicCamera* ortho = dynamic_cast<SgOrthographicCamera*>(camera)){
         ortho->setHeight(orgOrthoCameraHeight * ratio);
         ortho->notifyUpdate(modified);
     }
+
+    notifyCameraPositionInteractivelyChanged();
 }
 
 
@@ -1762,15 +1919,22 @@ void SceneWidgetImpl::zoomView(double ratio)
             const double dz = ratio * (lastClickedPoint - C.translation()).dot(v);
             interactiveCameraTransform->translation() -= dz * v;
         }
-        interactiveCameraTransform->notifyUpdate(modified);
-        interactiveCameraTransform->onPositionUpdatedInteractively();
 
     } else if(SgOrthographicCamera* ortho = dynamic_cast<SgOrthographicCamera*>(camera)){
         ortho->setHeight(ortho->height() * expf(ratio));
         ortho->notifyUpdate(modified);
     }
+
+    notifyCameraPositionInteractivelyChanged();
 }
 
+
+void SceneWidgetImpl::notifyCameraPositionInteractivelyChanged()
+{
+    isCameraPositionInteractivelyChanged = true;
+    interactiveCameraTransform->notifyUpdate(modified);
+}
+    
 
 void SceneWidget::startBuiltinCameraViewChange(const Vector3& center)
 {
@@ -1974,19 +2138,19 @@ void SceneWidgetImpl::updateCurrentCamera()
         
 SgPosTransform* SceneWidget::builtinCameraTransform()
 {
-    return impl->builtinCameraTransform.get();
+    return impl->builtinCameraTransform;
 }
 
 
 SgPerspectiveCamera* SceneWidget::builtinPerspectiveCamera() const
 {
-    return impl->builtinPersCamera.get();
+    return impl->builtinPersCamera;
 }
 
 
 SgOrthographicCamera* SceneWidget::builtinOrthographicCamera() const
 {
-    return impl->builtinOrthoCamera.get();
+    return impl->builtinOrthoCamera;
 }
 
 
@@ -2174,13 +2338,6 @@ void SceneWidgetImpl::onClippingDepthChanged()
     builtinPersCamera->notifyUpdate(modified);
     builtinOrthoCamera->notifyUpdate(modified);
     config->builtinCameraConnections.unblock();
-}
-
-
-void SceneWidgetImpl::onLightingToggled(bool on)
-{
-    renderer->setDefaultLighting(on);
-    update();
 }
 
 
@@ -2404,13 +2561,13 @@ bool SceneWidget::saveImage(const std::string& filename)
 
 bool SceneWidgetImpl::saveImage(const std::string& filename)
 {
-    return grabFrameBuffer().save(filename.c_str());
+    return grabFramebuffer().save(filename.c_str());
 }
 
 
 QImage SceneWidget::getImage()
 {
-    return impl->grabFrameBuffer();
+    return impl->grabFramebuffer();
 }
 
 
@@ -2831,9 +2988,12 @@ void SceneWidgetImpl::activateSystemNode(SgNode* node, bool on)
 
 ConfigDialog::ConfigDialog(SceneWidgetImpl* impl, bool useGLSL)
     : sceneWidgetImpl(impl),
+      lightingMode(3, CNOID_GETTEXT_DOMAIN_NAME),
       cullingMode(GLSceneRenderer::N_CULLING_MODES, CNOID_GETTEXT_DOMAIN_NAME)
 {
     setWindowTitle(_("Scene Config"));
+
+    auto renderer = sceneWidgetImpl->renderer;
 
     QVBoxLayout* topVBox = new QVBoxLayout();
     vbox = new QVBoxLayout();
@@ -2873,11 +3033,34 @@ ConfigDialog::ConfigDialog(SceneWidgetImpl* impl, bool useGLSL)
     
     vbox->addLayout(new HSeparatorBox(new QLabel(_("Lighting"))));
     hbox = new QHBoxLayout();
-    lightingCheck.setText(_("Do lighiting"));
-    lightingCheck.setChecked(true);
-    lightingCheck.sigToggled().connect([=](bool on){ impl->onLightingToggled(on); });
-    hbox->addWidget(&lightingCheck);
+    hbox->addWidget(new QLabel(_("Lighting mode")));
 
+    fullLightingRadio.setText(_("Full"));
+    fullLightingRadio.setChecked(true);
+    lightingModeGroup.addButton(&fullLightingRadio, GLSceneRenderer::FULL_LIGHTING);
+    lightingMode.setSymbol(GLSceneRenderer::FULL_LIGHTING, "full");
+    hbox->addWidget(&fullLightingRadio);
+    
+    minLightingRadio.setText(_("Minimum"));
+    lightingModeGroup.addButton(&minLightingRadio, GLSceneRenderer::MINIMUM_LIGHTING);
+    lightingMode.setSymbol(GLSceneRenderer::MINIMUM_LIGHTING, "minimum");
+    hbox->addWidget(&minLightingRadio);
+    
+    solidColorLightingRadio.setText(_("Solid"));
+    lightingModeGroup.addButton(&solidColorLightingRadio, GLSceneRenderer::SOLID_COLOR_LIGHTING);
+    lightingMode.setSymbol(GLSceneRenderer::SOLID_COLOR_LIGHTING, "solid");
+    hbox->addWidget(&solidColorLightingRadio);
+
+    lightingModeGroup.sigButtonToggled().connect(
+        [&, renderer](int mode, bool checked){
+            if(checked){
+                lightingMode.select(mode);
+                renderer->setLightingMode(mode);
+                sceneWidgetImpl->update();
+            }
+        });
+
+    hbox->addSpacing(10);
     smoothShadingCheck.setText(_("Smooth shading"));
     smoothShadingCheck.setChecked(true);
     smoothShadingCheck.sigToggled().connect([=](bool on){ impl->onSmoothShadingToggled(on); });
@@ -2887,7 +3070,6 @@ ConfigDialog::ConfigDialog(SceneWidgetImpl* impl, bool useGLSL)
 
     hbox = new QHBoxLayout();
     hbox->addWidget(new QLabel(_("Back face culling mode: ")));
-    auto renderer = sceneWidgetImpl->renderer;
     cullingMode.setSymbol(GLSceneRenderer::ENABLE_BACK_FACE_CULLING, "enabled");
     cullingMode.setSymbol(GLSceneRenderer::DISABLE_BACK_FACE_CULLING, "disabled");
     cullingMode.setSymbol(GLSceneRenderer::FORCE_BACK_FACE_CULLING, "forced");
@@ -2900,11 +3082,13 @@ ConfigDialog::ConfigDialog(SceneWidgetImpl* impl, bool useGLSL)
         hbox->addWidget(&cullingRadios[i]);
     }
     cullingRadios[cullingMode.which()].setChecked(true);
-    cullingModeGroup.sigButtonClicked().connect(
-        [&, renderer](int mode){
-            cullingMode.select(mode);
-            renderer->setBackFaceCullingMode(mode);
-            sceneWidgetImpl->update();
+    cullingModeGroup.sigButtonToggled().connect(
+        [&, renderer](int mode, bool checked){
+            if(checked){
+                cullingMode.select(mode);
+                renderer->setBackFaceCullingMode(mode);
+                sceneWidgetImpl->update();
+            }
         });
     hbox->addStretch();
     vbox->addLayout(hbox);
@@ -3083,6 +3267,11 @@ ConfigDialog::ConfigDialog(SceneWidgetImpl* impl, bool useGLSL)
     normalLengthSpin.setValue(0.01);
     normalLengthSpin.sigValueChanged().connect([=](double){ impl->onNormalVisualizationChanged(); });
     hbox->addWidget(&normalLengthSpin);
+
+    lightweightViewChangeCheck.setText(_("Lightweight view change"));
+    lightweightViewChangeCheck.sigToggled().connect(
+        [=](bool on){ impl->isLightweightViewChangeEnabled = on; });
+    hbox->addWidget(&lightweightViewChangeCheck);
     hbox->addStretch();
     vbox->addLayout(hbox);
     
@@ -3104,7 +3293,7 @@ ConfigDialog::ConfigDialog(SceneWidgetImpl* impl, bool useGLSL)
     hbox->addWidget(&fpsCheck);
 
     fpsTestButton.setText(_("Test"));
-    fpsTestButton.sigClicked().connect([=](){ impl->doFPSTest(); });
+    fpsTestButton.sigClicked().connect([=](){ impl->onFPSTestButtonClicked(); });
     hbox->addWidget(&fpsTestButton);
     fpsTestIterationSpin.setRange(1, 99);
     fpsTestIterationSpin.setValue(1);
@@ -3172,6 +3361,7 @@ void ConfigDialog::updateBuiltinCameraConfig()
 
 void ConfigDialog::storeState(Archive& archive)
 {
+    archive.write("lightingMode", lightingMode.selectedSymbol());
     archive.write("cullingMode", cullingMode.selectedSymbol());
     archive.write("defaultHeadLight", headLightCheck.isChecked());
     archive.write("defaultHeadLightIntensity", headLightIntensitySpin.value());
@@ -3206,6 +3396,7 @@ void ConfigDialog::storeState(Archive& archive)
     archive.write("pointSize", pointSizeSpin.value());
     archive.write("normalVisualization", normalVisualizationCheck.isChecked());
     archive.write("normalLength", normalLengthSpin.value());
+    archive.write("lightweightViewChange", lightweightViewChangeCheck.isChecked());
     archive.write("coordinateAxes", coordinateAxesCheck.isChecked());
     archive.write("fpsTestIteration", fpsTestIterationSpin.value());
     archive.write("showFPS", fpsCheck.isChecked());
@@ -3217,10 +3408,14 @@ void ConfigDialog::storeState(Archive& archive)
 void ConfigDialog::restoreState(const Archive& archive)
 {
     string symbol;
+    if(archive.read("lightingMode", symbol)){
+        if(lightingMode.select(symbol)){
+            lightingModeGroup.button(lightingMode.which())->setChecked(true);
+        }
+    }
     if(archive.read("cullingMode", symbol)){
         if(cullingMode.select(symbol)){
             cullingRadios[cullingMode.which()].setChecked(true);
-            sceneWidgetImpl->renderer->setBackFaceCullingMode(cullingMode.which());
         }
     }
     
@@ -3265,8 +3460,11 @@ void ConfigDialog::restoreState(const Archive& archive)
     normalVisualizationCheck.setChecked(archive.get("normalVisualization", normalVisualizationCheck.isChecked()));
     normalLengthSpin.setValue(archive.get("normalLength", normalLengthSpin.value()));
     coordinateAxesCheck.setChecked(archive.get("coordinateAxes", coordinateAxesCheck.isChecked()));
+    lightweightViewChangeCheck.setChecked(archive.get("lightweightViewChange", lightweightViewChangeCheck.isChecked()));
+
     fpsTestIterationSpin.setValue(archive.get("fpsTestIteration", fpsTestIterationSpin.value()));
     fpsCheck.setChecked(archive.get("showFPS", fpsCheck.isChecked()));
-    newDisplayListDoubleRenderingCheck.setChecked(archive.get("enableNewDisplayListDoubleRendering", newDisplayListDoubleRenderingCheck.isChecked()));
+    newDisplayListDoubleRenderingCheck.setChecked(
+        archive.get("enableNewDisplayListDoubleRendering", newDisplayListDoubleRenderingCheck.isChecked()));
     upsideDownCheck.setChecked(archive.get("upsideDown", upsideDownCheck.isChecked()));
 }
