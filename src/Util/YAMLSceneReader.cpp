@@ -34,7 +34,6 @@ using boost::regex_match;
 
 using namespace std;
 using namespace cnoid;
-namespace filesystem = boost::filesystem;
 using fmt::format;
 
 namespace {
@@ -97,7 +96,7 @@ public:
 
     map<string, ResourceInfoPtr> resourceInfoMap;
     SceneLoader sceneLoader;
-    filesystem::path baseDirectory;
+    stdx::filesystem::path baseDirectory;
     regex uriSchemeRegex;
     bool isUriSchemeRegexReady;
     typedef map<string, SgImagePtr> ImagePathToSgImageMap;
@@ -148,7 +147,7 @@ public:
         Mapping& resourceNode, ResourceInfo* info, vector<string>& names, const string& uri, YAMLSceneReader::Resource& resource);
     void decoupleResourceNode(Mapping& resourceNode, const string& uri, const string& nodeName);
     ResourceInfo* getOrCreateResourceInfo(Mapping& resourceNode, const string& uri);
-    filesystem::path findFileInPackage(const string& file);
+    stdx::filesystem::path findFileInPackage(const string& file);
     void adjustNodeCoordinate(SceneNodeInfo& info);
     void makeSceneNodeMap(ResourceInfo* info);
     void makeSceneNodeMapSub(const SceneNodeInfo& nodeInfo, SceneNodeMap& nodeMap);
@@ -996,10 +995,9 @@ void YAMLSceneReaderImpl::readTexture(SgShape* shape, Mapping& info)
             }else{
                 try{
                     image = new SgImage;
-                    filesystem::path filepath(url);
+                    stdx::filesystem::path filepath(url);
                     if(!checkAbsolute(filepath)){
-                        filepath = baseDirectory / filepath;
-                        filepath.normalize();
+                        filepath = stdx::filesystem::lexically_normal(baseDirectory / filepath);
                     }
                     imageIO.load(image->image(), getAbsolutePathString(filepath));
                     imagePathToSgImageMap[url] = image;
@@ -1244,7 +1242,7 @@ ResourceInfo* YAMLSceneReaderImpl::getOrCreateResourceInfo(Mapping& resourceNode
         return iter->second;
     }
 
-    filesystem::path filepath;
+    stdx::filesystem::path filepath;
         
     if(!isUriSchemeRegexReady){
         uriSchemeRegex.assign("^(.+)://(.+)$");
@@ -1276,8 +1274,7 @@ ResourceInfo* YAMLSceneReaderImpl::getOrCreateResourceInfo(Mapping& resourceNode
     if(!hasScheme){
         filepath = uri;
         if(!checkAbsolute(filepath)){
-            filepath = baseDirectory / filepath;
-            filepath.normalize();
+            filepath = stdx::filesystem::lexically_normal(baseDirectory / filepath);
         }
     }
     
@@ -1288,8 +1285,8 @@ ResourceInfo* YAMLSceneReaderImpl::getOrCreateResourceInfo(Mapping& resourceNode
 
     ResourceInfoPtr info = new ResourceInfo;
 
-    string filename = filesystem::absolute(filepath).string();
-    string ext = filesystem::extension(filepath);
+    string filename = stdx::filesystem::absolute(filepath).string();
+    string ext = filepath.extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
     if(ext == ".yaml" || ext == ".yml"){

@@ -1,4 +1,8 @@
-cmake_minimum_required(VERSION 3.1.0) # Qt5 requies this version or later
+if(MSVC)
+  cmake_minimum_required(VERSION 3.10.0) # CMAKE_CXX_STANDARD 17 is supported for MSVC
+else()
+  cmake_minimum_required(VERSION 3.5.0) # Ubuntu 16.04
+endif()
 
 cmake_policy(SET CMP0003 NEW)
 cmake_policy(SET CMP0057 NEW)
@@ -6,6 +10,7 @@ set(CMAKE_ALLOW_LOOSE_LOOP_CONSTRUCTS true)
 
 include(FindPkgConfig)
 include(CheckIncludeFiles)
+include(CheckCXXCompilerFlag)
 
 project(Choreonoid)
 
@@ -28,22 +33,20 @@ set(CNOID_SUBDIR choreonoid-${CNOID_VERSION})
 set(CNOID_PLUGIN_SUBDIR lib/${CNOID_SUBDIR})
 
 set(CMAKE_CXX_STANDARD 11)
-#set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(UNIX)
-  include(CheckCXXCompilerFlag OPTIONAL RESULT_VARIABLE included)
-  if(included)
-    # For Ubuntu 16.04, alghouth the c++17 option is available,
-    # CMake gets an error when 17 is set to CMAKE_CXX_STANDARD.
-    # Therefore c++17 is currently disabled.
-    #check_cxx_compiler_flag("-std=c++17" has_cpp17)
-
-    check_cxx_compiler_flag("-std=c++14" has_cpp14)
+  if(NOT CMAKE_VERSION VERSION_LESS 3.8.0) # CMake 3.8 or later is required to enable C++17
+    check_cxx_compiler_flag("-std=c++17" has_cpp17)
+    if(has_cpp17)
+      set(CMAKE_CXX_STANDARD 17)
+    endif()
   endif()
-  if(has_cpp17)
-    set(CMAKE_CXX_STANDARD 17)
-  elseif(has_cpp14)
-    set(CMAKE_CXX_STANDARD 14)
+  if(NOT has_cpp17)
+    check_cxx_compiler_flag("-std=c++14" has_cpp14)
+    if(has_cpp14)
+      set(CMAKE_CXX_STANDARD 14)
+    endif()
   endif()
   if(CMAKE_VERSION VERSION_LESS "3.1.0")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++${CMAKE_CXX_STANDARD}")
@@ -53,6 +56,21 @@ if(UNIX)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --no-gnu-unique")
   endif()
   add_definitions("-pthread")
+
+elseif(MSVC)
+  check_cxx_compiler_flag("/std:c++17" has_cpp17)
+  if(has_cpp17)
+    message(STATUS "/std:c++17 is available")
+    set(CMAKE_CXX_STANDARD 17)
+  endif()
+  if(NOT has_cpp17)
+    check_cxx_compiler_flag("/std:c++14" has_cpp14)
+    if(has_cpp14)
+      message(STATUS "/std:c++14 is available")
+      set(CMAKE_CXX_STANDARD 14)
+    endif()
+  endif()
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zc:__cplusplus")
 endif()
 
 if(WIN32)
@@ -361,7 +379,9 @@ if(UNIX)
 endif()
 
 if(ENABLE_LUA)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14")
+  if(CMAKE_CXX_STANDARD LESS 14)
+    message(FATAL_ERROR "Lua wrapper requires C++14 or later C++ versions")
+  endif()
   set(LUA_SOL2_DIR ${PROJECT_SOURCE_DIR}/thirdparty/sol2 CACHE PATH "set the directory of the Sol2 library")
   pkg_check_modules(LUA lua5.3)
   if(NOT LUA_FOUND)
@@ -378,7 +398,11 @@ endif()
 set(Boost_USE_STATIC_LIBS OFF)
 set(Boost_ADDITIONAL_VERSIONS "1.56" "1.57" "1.58" "1.59" "1.60" "1.61" "1.62" "1.63" "1.64" "1.65" "1.66" "1.67" "1.68")
 
-set(boost_packages system filesystem program_options iostreams)
+set(boost_packages system program_options iostreams)
+
+if(NOT has_cpp17)
+  set(boost_packages ${boost_packages} filesystem)
+endif()
 
 # Old GCC does not implement the regex library correctly
 if(CMAKE_COMPILER_IS_GNUCC AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 4.9.3)
