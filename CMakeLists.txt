@@ -36,12 +36,16 @@ set(CNOID_PLUGIN_SUBDIR lib/${CNOID_SUBDIR})
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_EXTENSIONS OFF)
 if(NOT CMAKE_VERSION VERSION_LESS 3.8.0) # CMake 3.8 or later is required to enable C++17
-  option(ENABLE_CXX_STANDARD_17 "Enable C++ 17 when it is available to the compiler" ON)
+  option(ENABLE_CXX_STANDARD_17 "Enable C++ 17 when it is available to the compiler" OFF)
 endif()
 if(NOT ENABLE_CXX_STANDARD_17)
   unset(has_cpp17 CACHE)
 endif()
 if(UNIX)
+  # Old GCC does not implement the regex library correctly
+  if(CMAKE_COMPILER_IS_GNUCC AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 4.9.3)
+    messag(FATAL_ERROR "The version of GCC is too old to build Choreonoid")
+  endif()
   if(ENABLE_CXX_STANDARD_17)
     check_cxx_compiler_flag("-std=c++17" has_cpp17)
     if(has_cpp17)
@@ -340,7 +344,6 @@ endif()
 
 set(CNOID_PYTHON_SUBDIR ${CNOID_PLUGIN_SUBDIR}/python)
 set(PYBIND11_DIR ${PYBIND11_DIR} CACHE PATH "The directory of the pybind11 library")
-set(CNOID_USE_PYBIND11 ON)
 
 option(USE_PYTHON3 "Use Python version 3 instead of version 2" ON)
 
@@ -409,14 +412,6 @@ if(NOT has_cpp17)
   set(boost_packages ${boost_packages} filesystem)
 endif()
 
-# Old GCC does not implement the regex library correctly
-if(CMAKE_COMPILER_IS_GNUCC AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 4.9.3)
-  set(CNOID_USE_BOOST_REGEX ON)
-  set(boost_packages ${boost_packages} regex)
-else()
-  set(CNOID_USE_BOOST_REGEX OFF)
-endif()
-
 if(MSVC)
   find_package(Boost 1.54.0 REQUIRED COMPONENTS ${boost_packages} OPTIONAL_COMPONENTS bzip2 zlib)
 else()
@@ -435,10 +430,6 @@ if(MSVC)
     ${Boost_SYSTEM_LIBRARY} ${Boost_FILESYSTEM_LIBRARY} ${Boost_PROGRAM_OPTIONS_LIBRARY}
     ${Boost_IOSTREAMS_LIBRARY} ${Boost_ZLIB_LIBRARY})
 
-  if(CNOID_USE_BOOST_REGEX)
-    install_external_libraries(${Boost_LIBRARY_DIRS} ${Boost_LIBRARY_DIRS} ${Boost_REGEX_LIBRARY})
-  endif()
-  
   if(INSTALL_SDK_WITH_EXTLIBS)
     foreach(dir ${Boost_INCLUDE_DIRS})
       if(EXISTS ${dir}/boost)
