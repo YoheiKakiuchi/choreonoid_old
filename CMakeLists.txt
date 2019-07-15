@@ -114,7 +114,11 @@ endif()
 
 option(INSTALL_RUNTIME_DEPENDENCIES "Installing the runtimes of external libraries" ${DEFAULT_INSTALL_RUNTIME_DEPENDENCIES})
 option(INSTALL_SDK "Installing SDK files such as header files" ${DEFAULT_INSTALL_SDK})
-option(INSTALL_SDK_WITH_EXTLIBS "The SDK installation includes the external libraries" OFF)
+if(MSVC)
+  option(INSTALL_SDK_WITH_EXTLIBS "The SDK installation includes the external libraries" OFF)
+endif()
+
+set(CNOID_SDK_INCLUDE_DIRS ${CNOID_DIR}/${CNOID_HEADER_SUBDIR})
 
 if(MSVC AND CMAKE_CL_64)
   add_definitions(-D_WIN64)
@@ -196,7 +200,7 @@ set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} ${linker_o
 
 function(install_external_libraries dll_dir lib_dir)
 
-set(libraries ${ARGV})
+  set(libraries ${ARGV})
 
   list(REMOVE_AT libraries 0 1)
   if(INSTALL_RUNTIME_DEPENDENCIES AND MSVC)
@@ -342,11 +346,7 @@ else()
   option(ENABLE_PYTHON "Enable Python" ON)
 endif()
 
-set(CNOID_PYTHON_SUBDIR ${CNOID_PLUGIN_SUBDIR}/python)
-set(PYBIND11_DIR ${PYBIND11_DIR} CACHE PATH "The directory of the pybind11 library")
-
 option(USE_PYTHON3 "Use Python version 3 instead of version 2" ON)
-
 # for Config.h
 if(USE_PYTHON3)
   set(CNOID_USE_PYTHON2 OFF)
@@ -354,14 +354,16 @@ else()
   set(CNOID_USE_PYTHON2 ON)
 endif()
 
-if(ENABLE_PYTHON)
-  if(PYBIND11_DIR)
-    set(PYBIND11_INCLUDE_DIRS ${PYBIND11_DIR}/include)
-  else()
-    set(PYBIND11_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/thirdparty/pybind11-2.2.4/include)
-  endif()
-  include_directories(${PYBIND11_INCLUDE_DIRS})
+set(CNOID_PYTHON_SUBDIR ${CNOID_PLUGIN_SUBDIR}/python)
 
+if(MSVC)
+  set(USE_EXTERNAL_PYBIND11_DEFAULT OFF)
+else()
+  set(USE_EXTERNAL_PYBIND11_DEFAULT ON)
+endif()
+option(USE_EXTERNAL_PYBIND11 "Use the Pybind11 library installed in the system" ${USE_EXTERNAL_PYBIND11_DEFAULT})
+
+if(ENABLE_PYTHON)
   # The following cache variables must be cleared to update the python version
   unset(PYTHON_INCLUDE_DIR CACHE)
   unset(PYTHON_LIBRARY CACHE)
@@ -380,6 +382,32 @@ if(ENABLE_PYTHON)
   if(MSVC)
     add_definitions(-DHAVE_SNPRINTF)
   endif()
+  list(APPEND CNOID_SDK_INCLUDE_DIRS ${PYTHON_INCLUDE_PATH})
+
+  if(USE_EXTERNAL_PYBIND11)
+    find_package(pybind11 2.2.4 QUIET)
+    if(pybind11_FOUND)
+      set(PYBIND11_INCLUDE_DIRS ${pybind11_INCLUDE_DIRS})
+      if(INSTALL_SDK_WITH_EXTLIBS)
+	foreach(dir ${PYBIND11_INCLUDE_DIRS})
+	  if(EXISTS ${dir}/pybind11)
+            install(DIRECTORY ${dir}/pybind11 DESTINATION ${CNOID_HEADER_SUBDIR})
+	  endif()
+	endforeach()
+      else()
+	list(APPEND CNOID_SDK_INCLUDE_DIRS ${PYBIND11_INCLUDE_DIRS})
+      endif()
+    endif()
+  endif()
+  if(NOT USE_EXTERNAL_PYBIND11 OR NOT pybind11_FOUND)
+    set(PYBIND11_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/thirdparty/pybind11-2.2.4/include)
+    if(INSTALL_SDK)
+      install(DIRECTORY ${PYBIND11_INCLUDE_DIRS}/pybind11 DESTINATION ${CNOID_HEADER_SUBDIR})
+    else()
+      list(APPEND CNOID_SDK_INCLUDE_DIRS ${PYBIND11_INCLUDE_DIRS})
+    endif()
+  endif()
+  include_directories(${PYBIND11_INCLUDE_DIRS})
 endif()
 
 # This variable is kept for backward compatibility
@@ -408,23 +436,19 @@ endif()
 
 # boost
 set(Boost_USE_STATIC_LIBS OFF)
-set(Boost_ADDITIONAL_VERSIONS "1.56" "1.57" "1.58" "1.59" "1.60" "1.61" "1.62" "1.63" "1.64" "1.65" "1.66" "1.67" "1.68")
-
+set(Boost_ADDITIONAL_VERSIONS "1.62" "1.63" "1.64" "1.65" "1.66" "1.67" "1.68" "1.69" "1.70")
 set(boost_packages system program_options iostreams)
-
 if(NOT has_cpp17)
   set(boost_packages ${boost_packages} filesystem)
 endif()
-
 if(MSVC)
-  find_package(Boost 1.54.0 REQUIRED COMPONENTS ${boost_packages} OPTIONAL_COMPONENTS bzip2 zlib)
+  find_package(Boost 1.58.0 REQUIRED COMPONENTS ${boost_packages} OPTIONAL_COMPONENTS bzip2 zlib)
 else()
-  find_package(Boost 1.54.0 REQUIRED COMPONENTS ${boost_packages})
+  find_package(Boost 1.58.0 REQUIRED COMPONENTS ${boost_packages})
 endif()
 
 include_directories(${Boost_INCLUDE_DIRS})
 link_directories(${Boost_LIBRARY_DIRS})
-
 set_property(DIRECTORY APPEND PROPERTY COMPILE_DEFINITIONS $<$<CONFIG:Release>:BOOST_DISABLE_ASSERTS>)
 
 if(MSVC)
@@ -444,38 +468,42 @@ if(MSVC)
 endif()
 
 # eigen
-if(NOT EIGEN_DIR)
-  if(MSVC)
-    set(EIGEN_DIR ${PROJECT_SOURCE_DIR}/thirdparty/eigen-3.2.10)
-  else(UNIX)
-    pkg_check_modules(EIGEN eigen3>=3.2.7) # pybind11 requries Eigen version 3.2.7 or higher
-    if(EIGEN_FOUND)
-      set(EIGEN_DIR ${EIGEN_INCLUDE_DIRS})
+if(MSVC)
+  set(USE_EXTERNAL_EIGEN_DEFAULT OFF)
+else()
+  set(USE_EXTERNAL_EIGEN_DEFAULT ON)
+endif()
+option(USE_EXTERNAL_EIGEN "Use the Eigen library installed in the system" ${USE_EXTERNAL_EIGEN_DEFAULT})
+
+if(USE_EXTERNAL_EIGEN)
+  find_package(Eigen3 QUIET)
+  if(EIGEN3_FOUND)
+    if(INSTALL_SDK_WITH_EXTLIBS)
+      foreach(dir ${EIGEN3_INCLUDE_DIRS})
+	if(EXISTS ${dir}/Eigen)
+	  install(DIRECTORY ${dir}/Eigen DESTINATION ${CNOID_HEADER_SUBDIR})
+	endif()
+	if(EXISTS ${dir}/unsupported)
+	  install(DIRECTORY ${dir}/unsupported DESTINATION ${CNOID_HEADER_SUBDIR})
+	endif()
+      endforeach()
     else()
-      message(STATUS "Set Eigen 3.2.10 included in the thirdparty directory to EIGEN_DIR")
-      set(EIGEN_DIR ${PROJECT_SOURCE_DIR}/thirdparty/eigen-3.2.10)
+      list(APPEND CNOID_SDK_INCLUDE_DIRS ${EIGEN3_INCLUDE_DIRS})
     endif()
   endif()
 endif()
 
-set(EIGEN_DIR ${EIGEN_DIR} CACHE PATH "The directory of the Eigen library")
-if(NOT EIGEN_DIR)
-  message(FATAL_ERROR "Please specify the Eigen directory to EIGEN_DIR.")
-else()
-  set(EIGEN_INCLUDE_DIRS ${EIGEN_DIR})
-  include_directories(${EIGEN_INCLUDE_DIRS})
+if(NOT USE_EXTERNAL_EIGEN OR NOT EIGEN3_FOUND)
+  set(EIGEN3_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/thirdparty/eigen-3.2.10)
+  if(INSTALL_SDK)
+    install(DIRECTORY ${EIGEN3_INCLUDE_DIRS}/Eigen ${EIGEN3_INCLUDE_DIRS}/unsupported
+      DESTINATION ${CNOID_HEADER_SUBDIR})
+  else()
+    list(APPEND CNOID_SDK_INCLUDE_DIRS ${EIGEN3_INCLUDE_DIRS})
+  endif()
 endif()
 
-if(MSVC AND INSTALL_SDK_WITH_EXTLIBS)
-  foreach(dir ${EIGEN_INCLUDE_DIRS})
-    if(EXISTS "${EIGEN_INCLUDE_DIRS}/Eigen")
-      install(DIRECTORY "${EIGEN_INCLUDE_DIRS}/Eigen" DESTINATION ${CNOID_HEADER_SUBDIR})
-    endif()
-    if(EXISTS "${EIGEN_INCLUDE_DIRS}/unsupported/Eigen")
-      install(DIRECTORY "${EIGEN_INCLUDE_DIRS}/unsupported/Eigen" DESTINATION ${CNOID_HEADER_SUBDIR})
-    endif()
-  endforeach()
-endif()
+include_directories(${EIGEN3_INCLUDE_DIRS})
 
 if(ENABLE_GUI)
   # Qt5
@@ -518,11 +546,24 @@ if(ENABLE_GUI)
     install(DIRECTORY ${_qt5Core_install_prefix}/plugins/imageformats DESTINATION bin FILES_MATCHING PATTERN "*.dll")
 
     if(INSTALL_SDK_WITH_EXTLIBS)
-      foreach(dir
-	  ${Qt5Core_INCLUDE_DIRS} ${Qt5Gui_INCLUDE_DIRS} ${Qt5Widgets_INCLUDE_DIRS} ${Qt5Network_INCLUDE_DIRS})
-        install(DIRECTORY ${dir} DESTINATION ${CNOID_HEADER_SUBDIR})
+      unset(include_dirs)
+      foreach(dir ${Qt5Core_INCLUDE_DIRS} ${Qt5Gui_INCLUDE_DIRS} ${Qt5Widgets_INCLUDE_DIRS} ${Qt5Network_INCLUDE_DIRS})
+	if(NOT dir MATCHES "/include/?$")
+	  list(APPEND include_dirs ${dir})
+	endif()
       endforeach()
+      list(REMOVE_DUPLICATES include_dirs)
+      install(DIRECTORY ${include_dirs} DESTINATION ${CNOID_HEADER_SUBDIR})
     endif()
+  endif()
+
+  if(NOT INSTALL_SDK_WITH_EXTLIBS)
+    list(APPEND CNOID_SDK_INCLUDE_DIRS
+      ${Qt5Core_INCLUDE_DIRS}
+      ${Qt5Gui_INCLUDE_DIRS}
+      ${Qt5Widgets_INCLUDE_DIRS}
+      ${Qt5OpenGL_INCLUDE_DIRS}
+      ${Qt5Network_INCLUDE_DIRS})
   endif()
 endif()
 
@@ -540,7 +581,7 @@ else()
 endif()
 option(ENABLE_ASSIMP "Enable Assimp functions" ${is_assimp_enabled})
 if(ENABLE_ASSIMP AND (NOT ASSIMP_FOUND))
-  message(FATAL_ERROR "Please specify the directory of the ASSIMP library to ASSIMP_DIR.")
+  message(FATAL_ERROR "Please specify the directory containing the CMake config files of the ASSIMP library to ASSIMP_DIR.")
 endif()
 if(MSVC)
   if(INSTALL_RUNTIME_DEPENDENCIES)
@@ -864,7 +905,6 @@ endif()
 set_property(DIRECTORY APPEND PROPERTY COMPILE_DEFINITIONS $<$<CONFIG:Debug>:CNOID_DEBUG>)
 
 if(UNIX)
-  
   option(PUT_EXTRA_WARNINGS "Put extra warnings in compile" OFF)
   if(PUT_EXTRA_WARNINGS)
     set(extra_warning_options "-Wunused -Woverloaded-virtual -Wsign-compare")
@@ -882,10 +922,6 @@ if(UNIX)
       set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--unresolved-symbols=ignore-in-shared-libs -Wl,--warn-unresolved-symbols")
     endif()
   endif()
-
-  # The RTTI such as dynamic_cast cannot work well with this option in the older GCC like that of Ubuntu 10.04.
-  # So currently this option should be only enabled for modules which may cause symbol conficts
-  #set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-Bsymbolic") 
 
 elseif(MSVC)
   set_property(DIRECTORY APPEND PROPERTY COMPILE_DEFINITIONS _CRT_SECURE_NO_WARNINGS)
@@ -1248,22 +1284,22 @@ function(make_gettext_mofiles target out_mofiles)
 endfunction()
 
 # libyaml
-if(UNIX)
-  set(USE_EXTERNAL_YAML_DEFAULT ON)
-elseif(MSVC)
-  set(USE_EXTERNAL_YAML_DEFAULT OFF)
-endif()
-option(USE_EXTERNAL_YAML "Use the yaml library installed in an external directory" ${USE_EXTERNAL_YAML_DEFAULT})
-
-if(USE_EXTERNAL_YAML)
-  set(LIBYAML_DIR CACHE PATH "set the top directory of the libyaml")
-  if(LIBYAML_DIR)
-    include_directories(${LIBYAML_DIR}/include)
-    link_directories(${LIBYAML_DIR}/lib)
-  endif()
+if(MSVC)
+  set(USE_EXTERNAL_LIBYAML_DEFAULT OFF)
 else()
+  set(USE_EXTERNAL_LIBYAML_DEFAULT ON)
+endif()
+option(USE_EXTERNAL_LIBYAML "Use the yaml library installed in an external directory" ${USE_EXTERNAL_LIBYAML_DEFAULT})
+
+if(USE_EXTERNAL_LIBYAML)
+  pkg_check_modules(LIBYAML yaml-0.1 QUIET)
+endif()
+
+if(NOT USE_EXTERNAL_LIBYAML OR NOT LIBYAML_FOUND)
   add_subdirectory(thirdparty/yaml-0.1.7)
-  include_directories(${PROJECT_SOURCE_DIR}/thirdparty/yaml-0.1.7/include)
+  set(LIBYAML_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/thirdparty/yaml-0.1.7/include)
+  set(LIBYAML_LIBRARY_DIRS ${PROJECT_SOURCE_DIR}/thirdparty/yaml-0.1.7/lib)
+  set(LIBYAML_LIBRARIES yaml)
 endif()
 
 # pugixml
@@ -1339,79 +1375,40 @@ include(InstallRequiredSystemLibraries)
 
 # InstallRequiredSystemLibraries does not properly support MSVS 14 yet, so do it manually.  (CMake3.5)
 if(INSTALL_RUNTIME_DEPENDENCIES)
-unset(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_DEBUG)
-unset(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_RELEASE)
-if(DEFINED MSVC_VERSION AND NOT MSVC_VERSION LESS 1900)
+  unset(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_DEBUG)
+  unset(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_RELEASE)
+  if(DEFINED MSVC_VERSION AND NOT MSVC_VERSION LESS 1900)
     # Internal: Architecture-appropriate library directory names.
     if("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "ARM")
-        set(_winsdk_arch8 arm) # what the WDK for Win8+ calls this architecture
+      set(_winsdk_arch8 arm) # what the WDK for Win8+ calls this architecture
     else()
-        if(CMAKE_SIZEOF_VOID_P MATCHES "8")
-            set(_winsdk_arch8 x64) # what the WDK for Win8+ calls this architecture
-        else()
-            set(_winsdk_arch8 x86) # what the WDK for Win8+ calls this architecture
-        endif()
+      if(CMAKE_SIZEOF_VOID_P MATCHES "8")
+        set(_winsdk_arch8 x64) # what the WDK for Win8+ calls this architecture
+      else()
+        set(_winsdk_arch8 x86) # what the WDK for Win8+ calls this architecture
+      endif()
     endif()
 
     # The CRT is distributed with MSVS.
     get_filename_component(MSVS_DIR
-        "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\VisualStudio\\14.0;ShellFolder]" ABSOLUTE)
+      "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\VisualStudio\\14.0;ShellFolder]" ABSOLUTE)
 
     # As of MSVC 19 the CRT depends on the 'univeral' CRT (which is part of Windows development kit 10 and above).
     get_filename_component(WINDOWS_KIT_DIR
-        "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots;KitsRoot10]" ABSOLUTE)
-
+      "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots;KitsRoot10]" ABSOLUTE)
+    
     file(GLOB CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_DEBUG
-        "${MSVS_DIR}/VC/redist/debug_nonredist/${_winsdk_arch8}/Microsoft.VC140.DebugCRT/*.dll"
-        "${WINDOWS_KIT_DIR}/Redist/ucrt/DLLs/${_winsdk_arch8}/api-ms-win-*.dll"
-        "${WINDOWS_KIT_DIR}/bin/${_winsdk_arch8}/ucrt/*.dll"
-    )
+      "${MSVS_DIR}/VC/redist/debug_nonredist/${_winsdk_arch8}/Microsoft.VC140.DebugCRT/*.dll"
+      "${WINDOWS_KIT_DIR}/Redist/ucrt/DLLs/${_winsdk_arch8}/api-ms-win-*.dll"
+      "${WINDOWS_KIT_DIR}/bin/${_winsdk_arch8}/ucrt/*.dll"
+      )
     file(GLOB CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_RELEASE
-        "${MSVS_DIR}/VC/redist/${_winsdk_arch8}/Microsoft.VC140.CRT/*.dll"
-        "${WINDOWS_KIT_DIR}/Redist/ucrt/DLLs/${_winsdk_arch8}/*.dll"
-    )
+      "${MSVS_DIR}/VC/redist/${_winsdk_arch8}/Microsoft.VC140.CRT/*.dll"
+      "${WINDOWS_KIT_DIR}/Redist/ucrt/DLLs/${_winsdk_arch8}/*.dll"
+      )
 
     install(PROGRAMS ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_RELEASE} DESTINATION bin )
-endif()
-endif()
-
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Choreonoid")
-set(CPACK_PACKAGE_VENDOR "Shin'ichiro Nakaoka, AIST")
-#set(CPACK_PACKAGE_DESCRIPTION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/ReadMe.txt")
-set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
-set(CPACK_PACKAGE_VERSION_MAJOR ${CNOID_MAJOR_VERSION})
-set(CPACK_PACKAGE_VERSION_MINOR ${CNOID_MINOR_VERSION})
-set(CPACK_PACKAGE_VERSION_PATCH ${CNOID_PATCH_VERSION})
-set(CPACK_PACKAGE_INSTALL_DIRECTORY "Choreonoid ${CNOID_VERSION}")
-set(CPACK_PACKAGE_INSTALL_REGISTORY_KEY "Choreonoid ${CNOID_VERSION}")
-
-set(CPACK_GENERATOR NSIS)
-if(WIN32)
-  set(CPACK_GENERATOR NSIS)
-  set(CPACK_PACKAGE_ICON "${CMAKE_SOURCE_DIR}\\\\src\\\\Choreonoid\\\\icon\\\\choreonoid.ico")
-  set(CPACK_NSIS_INSTALLED_ICON_NAME "bin\\\\choreonoid.exe")
-  set(CPACK_NSIS_DISPLAY_NAME "Choreonoid ${CNOID_VERSION}")
-  set(CPACK_NSIS_CONTACT "choreonoid@m.aist.go.jp")
-  set(CPACK_NSIS_MODIFY_PATH ON)
-  set(CPACK_PACKAGE_EXECUTABLES "choreonoid;Choreonoid")
-  set(CPACK_CREATE_DESKTOP_LINKS choreonoid)
-  set(CPACK_NSIS_URL_INFO_ABOUT "http://choreonoid.org")
-  
-  set(CPACK_NSIS_EXTRA_INSTALL_COMMANDS "!include \\\"FileAssociation.nsh\\\"\n\\\${registerExtension} \\\"\$INSTDIR\\\\bin\\\\choreonoid.exe\\\" \\\".cnoid\\\" \\\"ChoreonoidProject\\\" \nSystem::Call 'shell32.dll::SHChangeNotify(i, i, i, i) v (0x08000000, 0, 0, 0)'")
-  set(CPACK_NSIS_EXTRA_UNINSTALL_COMMANDS "\\\${unregisterExtension} \\\".cnoid\\\" \\\"ChoreonoidProject\\\" \nSystem::Call 'shell32.dll::SHChangeNotify(i, i, i, i) v (0x08000000, 0, 0, 0)'")
-
-elseif(UNIX)
-  set(CPACK_GENERATOR DEB)
-  set(CPACK_PACKAGE_FILE_NAME "choreonoid_${CNOID_FULL_VERSION}_i386")
-  set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6, libgcc1, libstdc++6, libpng12-0, libjpeg62, libyaml-0-2, zlib1g, libboost-filesystem1.42.0, libboost-date-time1.42.0, libboost-program-options1.42.0, libboost-system1.42.0, libqtcore4, libqtgui4, libqt4-test, libqt4-opengl")
-  if(INSTALL_SDK)
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, libstdc++-dev, libboost-dev, libboost-program-options-dev, libboost-python-dev, libqt4-dev, libqt4-opengl-dev")
   endif()
-  set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Shin'ichiro Nakaoka")
 endif()
-
-#set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY 1)
-
-include(CPack)
 
 add_subdirectory(misc)
