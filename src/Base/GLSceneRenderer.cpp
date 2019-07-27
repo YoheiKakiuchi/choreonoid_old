@@ -154,11 +154,17 @@ GLSceneRenderer::PolygonMode GLSceneRenderer::polygonMode() const
 
 void GLSceneRenderer::setViewport(int x, int y, int width, int height)
 {
+    glViewport(x, y, width, height);
+    updateViewportInformation(x, y, width, height);
+}
+
+
+void GLSceneRenderer::updateViewportInformation(int x, int y, int width, int height)
+{
     if(height > 0){
         impl->aspectRatio = (double)width / height;
     }
     impl->viewport << x, y, width, height;
-    glViewport(x, y, width, height);
 }
 
 
@@ -334,4 +340,16 @@ bool GLSceneRenderer::unproject(double x, double y, double z, Vector3& out_proje
     out_projected.z() = projected.z() / projected[3];
 
     return true;
+}
+
+
+void GLSceneRenderer::setPickingBufferImageOutputEnabled(bool)
+{
+
+}
+    
+
+bool GLSceneRenderer::getPickingBufferImage(Image&)
+{
+    return false;
 }

@@ -12,6 +12,7 @@
 namespace cnoid {
 
 class GLSceneRendererImpl;
+class Image;
     
 class CNOID_EXPORT GLSceneRenderer : public SceneRenderer
 {
@@ -32,10 +33,11 @@ public:
     bool setSwapInterval(int interval);
     int getSwapInterval() const;
 
-    virtual void setViewport(int x, int y, int width, int height) override;
-    virtual Array4i viewport() const override;
+    void setViewport(int x, int y, int width, int height);
+    void updateViewportInformation(int x, int y, int width, int height);
+    Array4i viewport() const;
     void getViewport(int& out_x, int& out_y, int& out_width, int& out_height) const;
-    virtual double aspectRatio() const override; // width / height;
+    double aspectRatio() const; // width / height;
 
     void getPerspectiveProjectionMatrix(
         double fovy, double aspect, double zNear, double zFar, Matrix4& out_matrix);
@@ -95,6 +97,9 @@ public:
     virtual int backFaceCullingMode() const = 0;
 
     virtual void setBoundingBoxRenderingForLightweightRenderingGroupEnabled(bool on);
+
+    virtual void setPickingBufferImageOutputEnabled(bool on);
+    virtual bool getPickingBufferImage(Image& out_image);
 
 protected:
     virtual void onSceneGraphUpdated(const SgUpdate& update) override;
