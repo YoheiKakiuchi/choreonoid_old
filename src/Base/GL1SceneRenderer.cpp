@@ -29,6 +29,7 @@ namespace {
 
 const bool USE_DISPLAY_LISTS = true;
 const bool USE_VBO = false;
+const bool USE_RIGHT_BOTTOM_PIXEL_FOR_PICKING = true;
 const bool SHOW_IMAGE_FOR_PICKING = false;
 
 const float MinLineWidthForPicking = 5.0f;
@@ -379,7 +380,7 @@ void GL1SceneRendererImpl::initialize()
     prevNumLights = 0;
     isHeadLightLightingFromBackEnabled = false;
 
-    prevFog = 0;
+    prevFog = nullptr;
 
     lightingMode = GLSceneRenderer::FULL_LIGHTING;
     defaultLighting = true;
@@ -474,6 +475,9 @@ bool GL1SceneRendererImpl::initializeGL()
     setFrontCCW(true);
 
     glGetIntegerv(GL_MAX_LIGHTS, &maxLights);
+
+    GLfloat defaultAmbient[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    glLightModelfv(GL_LIGHT_MODEL_AMBIENT, defaultAmbient);
     
     glDisable(GL_FOG);
     isCurrentFogUpdated = false;
@@ -518,7 +522,7 @@ void GL1SceneRendererImpl::beginRendering(bool doRenderingCommands)
         nextResourceMap = &resourceMaps[1 - currentResourceMapIndex];
         hasValidNextResourceMap = false;
     }
-    currentDisplayListResource = 0;
+    currentDisplayListResource = nullptr;
 
     if(doRenderingCommands){
         if(isPicking){
@@ -638,12 +642,17 @@ void GL1SceneRendererImpl::renderLights(const Affine3& cameraPosition)
         glDisable(GL_LIGHT1);
     } else {
         renderLight(headLight, GL_LIGHT0, cameraPosition);
+        bool isBackLightActive = false;
         if(isHeadLightLightingFromBackEnabled){
             if(SgDirectionalLight* directionalHeadLight = dynamic_cast<SgDirectionalLight*>(headLight)){
                 SgDirectionalLight lightFromBack(*directionalHeadLight);
                 lightFromBack.setDirection(-directionalHeadLight->direction());
                 renderLight(&lightFromBack, GL_LIGHT1, cameraPosition);
+                isBackLightActive = true;
             }
+        }
+        if(!isBackLightActive){
+            glDisable(GL_LIGHT1);
         }
     }
     
@@ -733,7 +742,7 @@ void GL1SceneRendererImpl::renderLight(const SgLight* light, GLint id, const Aff
 
 void GL1SceneRendererImpl::renderFog()
 {
-    SgFog* fog = 0;
+    SgFog* fog = nullptr;
     if(self->isFogEnabled()){
         int n = self->numFogs();
         if(n > 0){
@@ -840,8 +849,21 @@ bool GL1SceneRendererImpl::doPick(int x, int y)
     glDisable(GL_DITHER);
     glDisable(GL_FOG);
 
+    int vx, vy, vw, vh;
+    int px, py;
+
+    if(USE_RIGHT_BOTTOM_PIXEL_FOR_PICKING){
+        self->getViewport(vx, vy, vw, vh);
+        glViewport(vw - x - 1, -y, vw, vh);
+        px = vw - 1;
+        py = 0;
+    } else {
+        px = x;
+        py = y;
+    }
+        
     if(!SHOW_IMAGE_FOR_PICKING){
-        glScissor(x, y, 1, 1);
+        glScissor(px, py, 1, 1);
         glEnable(GL_SCISSOR_TEST);
     }
     
@@ -852,7 +874,7 @@ bool GL1SceneRendererImpl::doPick(int x, int y)
     glPopAttrib();
 
     GLfloat color[4];
-    glReadPixels(x, y, 1, 1, GL_RGBA, GL_FLOAT, color);
+    glReadPixels(px, py, 1, 1, GL_RGBA, GL_FLOAT, color);
     if(SHOW_IMAGE_FOR_PICKING){
         color[2] = 0.0f;
     }
@@ -862,11 +884,15 @@ bool GL1SceneRendererImpl::doPick(int x, int y)
 
     if(0 < id && id < pickingNodePathList.size()){
         GLfloat depth;
-        glReadPixels(x, y, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
+        glReadPixels(px, py, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
         Vector3 projected;
         if(self->unproject(x, y, depth, pickedPoint)){
             pickedNodePath = *pickingNodePathList[id];
         }
+    }
+
+    if(USE_RIGHT_BOTTOM_PIXEL_FOR_PICKING){
+        glViewport(vx, vy, vw, vh);
     }
 
     return !pickedNodePath.empty();
@@ -1033,7 +1059,7 @@ void GL1SceneRendererImpl::renderInvariantGroup(SgInvariantGroup* group)
             }
         }
     }
-    currentDisplayListResource = 0;
+    currentDisplayListResource = nullptr;
 }
 
 
@@ -1113,7 +1139,7 @@ void GL1SceneRendererImpl::renderShape(SgShape* shape)
                 popPickName();
             } else {
                 SgMaterial* material = shape->material();
-                SgTexture* texture = isTextureEnabled ? shape->texture() : 0;
+                SgTexture* texture = isTextureEnabled ? shape->texture() : nullptr;
                 
                 if((material && material->transparency() > 0.0)
                    /* || (texture && texture->constImage().hasAlphaComponent()) */){
@@ -1233,7 +1259,10 @@ bool GL1SceneRendererImpl::renderTexture(SgTexture* texture, bool withMaterial)
     
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, texture->repeatS() ? GL_REPEAT : GL_CLAMP);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, texture->repeatT() ? GL_REPEAT : GL_CLAMP);
-    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, withMaterial ? GL_MODULATE : GL_REPLACE);
+
+    //glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE); // default
+    //glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, withMaterial ? GL_MODULATE : GL_REPLACE);
+
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
     if(isCompiling){
@@ -1333,7 +1362,7 @@ void GL1SceneRendererImpl::renderTransparentShapes()
             setPickColor(info.pickId);
         } else {
             renderMaterial(shape->material());
-            SgTexture* texture = isTextureEnabled ? shape->texture() : 0;
+            SgTexture* texture = isTextureEnabled ? shape->texture() : nullptr;
             if(texture && shape->mesh()->hasTexCoords()){
                 hasTexture = renderTexture(texture, shape->material());
             }
@@ -1497,12 +1526,11 @@ void GL1SceneRendererImpl::writeVertexBuffers(SgMesh* mesh, ShapeResource* resou
     
     bool hasNormals = mesh->hasNormals() && doLighting;
     bool hasColors = mesh->hasColors() && doLighting;
-    SgVertexArray* vertices = 0;
-    SgNormalArray* normals = 0;
-    SgIndexArray* triangleVertices = 0;
-    ColorArray* colors = 0;
-    SgTexCoordArray* texCoords = 0;
-
+    SgVertexArray* vertices = nullptr;
+    SgNormalArray* normals = nullptr;
+    SgIndexArray* triangleVertices = nullptr;
+    ColorArray* colors = nullptr;
+    SgTexCoordArray* texCoords = nullptr;
 
     vertices = &buf->vertices;
     vertices->clear();
