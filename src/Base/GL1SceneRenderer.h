@@ -16,8 +16,7 @@ class GL1SceneRendererImpl;
 class CNOID_EXPORT GL1SceneRenderer : public GLSceneRenderer
 {
 public:
-    GL1SceneRenderer();
-    GL1SceneRenderer(SgGroup* root);
+    GL1SceneRenderer(SgGroup* root = nullptr);
     virtual ~GL1SceneRenderer();
 
     virtual void setOutputStream(std::ostream& os) override;
@@ -29,6 +28,7 @@ public:
     virtual const Matrix4& projectionMatrix() const override;
     virtual bool initializeGL() override;
     virtual void flush() override;
+    virtual void setViewport(int x, int y, int width, int height) override;
 
     virtual const Vector3& pickedPoint() const override;
     virtual const SgNodePath& pickedNodePath() const override;
@@ -41,8 +41,6 @@ public:
     virtual void enableTexture(bool on) override;
     virtual void setDefaultPointSize(double size) override;
     virtual void setDefaultLineWidth(double width) override;
-
-    void setNewDisplayListDoubleRenderingEnabled(bool on);
 
     virtual void showNormalVectors(double length) override;
 
@@ -62,7 +60,6 @@ public:
   protected:
     virtual void doRender() override;
     virtual bool doPick(int x, int y) override;
-    virtual void onImageUpdated(SgImage* image) override;
     
   private:
     GL1SceneRendererImpl* impl;

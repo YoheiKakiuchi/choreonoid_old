@@ -68,6 +68,11 @@ public:
     QLabel targetLabel;
     QLabel configurationLabel;
     QLabel resultLabel;
+    enum { BASE_COORD, PARENT_COORD, OBJECT_COORD };
+    ButtonGroup coordinateModeGroup;
+    RadioButton baseCoordRadio;
+    RadioButton parentCoordRadio;
+    RadioButton objectCoordRadio;
     DoubleSpinBox xyzSpin[3];
     Action* rpyCheck;
     DoubleSpinBox rpySpin[3];
@@ -155,15 +160,19 @@ LinkPositionViewImpl::~LinkPositionViewImpl()
 
 void LinkPositionViewImpl::createPanel()
 {
-    const int margin = 8;
-    
     self->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+
+    auto style = self->style();
+    int lmargin = style->pixelMetric(QStyle::PM_LayoutLeftMargin);
+    int rmargin = style->pixelMetric(QStyle::PM_LayoutRightMargin);
+    int tmargin = style->pixelMetric(QStyle::PM_LayoutTopMargin);
+    int bmargin = style->pixelMetric(QStyle::PM_LayoutBottomMargin);
     
     auto topvbox = new QVBoxLayout;
     self->setLayout(topvbox);
     
     auto mainvbox = new QVBoxLayout;
-    mainvbox->setContentsMargins(margin, margin, margin, margin);
+    mainvbox->setContentsMargins(lmargin / 2, rmargin / 2, tmargin / 2, bmargin / 2);
     topvbox->addLayout(mainvbox);
 
     auto hbox = new QHBoxLayout;
@@ -198,6 +207,20 @@ void LinkPositionViewImpl::createPanel()
     hbox->addWidget(applyButton);
     mainvbox->addLayout(hbox);
 
+    hbox = new QHBoxLayout;
+    hbox->addWidget(new QLabel(_("Coordinate:")));
+    baseCoordRadio.setText(_("Base"));
+    hbox->addWidget(&baseCoordRadio);
+    coordinateModeGroup.addButton(&baseCoordRadio, BASE_COORD);
+    parentCoordRadio.setText(_("Parent"));
+    hbox->addWidget(&parentCoordRadio);
+    coordinateModeGroup.addButton(&parentCoordRadio, PARENT_COORD);
+    objectCoordRadio.setText(_("Object"));
+    hbox->addWidget(&objectCoordRadio);
+    coordinateModeGroup.addButton(&objectCoordRadio, OBJECT_COORD);
+    hbox->addStretch();
+    mainvbox->addLayout(hbox);
+
     auto grid = new QGridLayout;
     static const char* xyzLabels[] = { "X", "Y", "Z" };
     static const char* rpyLabelChar[] = {"RX", "RY", "RZ"};
@@ -215,7 +238,7 @@ void LinkPositionViewImpl::createPanel()
             xyzSpin[i].sigValueChanged().connect(
                 [this, s](double){ onPositionInput(s); }));
 
-        grid->addWidget(new QLabel(xyzLabels[i]), 0, i * 2, Qt::AlignRight);
+        grid->addWidget(new QLabel(xyzLabels[i]), 0, i * 2, Qt::AlignCenter);
         grid->addWidget(&xyzSpin[i], 0, i * 2 + 1);
         
         // Roll-pitch-yaw spin boxes
@@ -306,7 +329,7 @@ void LinkPositionViewImpl::createPanel()
     grid->addWidget(&userCoordCombo, 0, 1);
     grid->addWidget(new QPushButton(_("Edit")), 0, 2);
 
-    grid->addWidget(new QLabel(_("Local")), 1, 0, Qt::AlignLeft);
+    grid->addWidget(new QLabel(_("Target")), 1, 0, Qt::AlignLeft);
     toolCoordCombo.addItem(_("Link Origin"));
     grid->addWidget(&toolCoordCombo, 1, 1);
     grid->addWidget(new QPushButton(_("Edit")), 1, 2);

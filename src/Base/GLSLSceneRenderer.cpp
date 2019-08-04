@@ -11,11 +11,14 @@
 #include <cnoid/SceneEffects>
 #include <cnoid/EigenUtil>
 #include <cnoid/NullOut>
+#include <fmt/format.h>
 #include <GL/glu.h>
 #include <unordered_map>
 #include <mutex>
+#include <regex>
 #include <iostream>
 #include <stdexcept>
+#include "gettext.h"
 
 using namespace std;
 using namespace cnoid;
@@ -250,6 +253,7 @@ public:
     bool isActuallyRendering;
     bool isPicking;
     bool isPickingBufferImageOutputEnabled;
+    bool isShadowCastingEnabled;
     bool isRenderingShadowMap;
     bool isLightweightRenderingBeingProcessed;
     bool isLowMemoryConsumptionMode;
@@ -415,13 +419,6 @@ public:
 }
 
 
-GLSLSceneRenderer::GLSLSceneRenderer()
-{
-    impl = new GLSLSceneRendererImpl(this);
-    impl->initialize();
-}
-
-
 GLSLSceneRenderer::GLSLSceneRenderer(SgGroup* sceneRoot)
     : GLSceneRenderer(sceneRoot)
 {
@@ -459,6 +456,7 @@ void GLSLSceneRendererImpl::initialize()
     isActuallyRendering = false;
     isPicking = false;
     isPickingBufferImageOutputEnabled = false;
+    isShadowCastingEnabled = true;
     isRenderingShadowMap = false;
     isLowMemoryConsumptionMode = false;
     isBoundingBoxRenderingMode = false;
@@ -622,7 +620,6 @@ void GLSLSceneRendererImpl::updateDefaultFramebufferObject()
 
 bool GLSLSceneRenderer::initializeGL()
 {
-    GLSceneRenderer::initializeGL();
     return impl->initializeGL();
 }
 
@@ -633,6 +630,44 @@ bool GLSLSceneRendererImpl::initializeGL()
         return false;
     }
 
+    GLint major, minor;
+    glGetIntegerv(GL_MAJOR_VERSION, &major);
+    glGetIntegerv(GL_MINOR_VERSION, &minor);
+    const GLubyte* version = glGetString(GL_VERSION);
+    const GLubyte* vendor = glGetString(GL_VENDOR);
+    const GLubyte* renderer = glGetString(GL_RENDERER);
+    const GLubyte* glsl = glGetString(GL_SHADING_LANGUAGE_VERSION);
+
+    os() << fmt::format(_("OpenGL {0}.{1} ({2} {3}, GLSL {4}) is available for the \"{5}\" view.\n"),
+                        major, minor, vendor, renderer, glsl, self->name());
+
+    // Check if the GPU driver is Nouveau
+    if(regex_match((const char*)vendor, regex(".*nouveau.*"))){
+        isShadowCastingEnabled = false;
+    }
+        
+    // Check the version of Linux Intel GPU driver (Mesa version)
+    if(isShadowCastingEnabled){
+        std::cmatch match;
+        if(regex_match((const char*)version, match, regex(".*Mesa (\\d+)\\.(\\d+)\\.(\\d+).*$"))){
+            int mesaMajor = stoi(match.str(1));
+            if(mesaMajor >= 19){
+                isShadowCastingEnabled = false;
+            }
+        }
+    }
+
+    // Check if the GPU is AMD's Radeon GPU
+    if(isShadowCastingEnabled && regex_match((const char*)renderer, regex("^AMD Radeon.*"))){
+        isShadowCastingEnabled = false;
+    }
+
+    if(!isShadowCastingEnabled){
+        os() << fmt::format(_(" Shadow casting is disabled for this GPU due to some problems.\n"));
+    }
+    
+    os().flush();
+    
     updateDefaultFramebufferObject();
 
     try {
@@ -671,6 +706,13 @@ void GLSLSceneRenderer::flush()
        may be bounded in the renderer.
     */
     glBindFramebuffer(GL_FRAMEBUFFER, impl->defaultFBO);
+}
+
+
+void GLSLSceneRenderer::setViewport(int x, int y, int width, int height)
+{
+    glViewport(x, y, width, height);
+    updateViewportInformation(x, y, width, height);
 }
 
 
@@ -804,7 +846,7 @@ void GLSLSceneRendererImpl::doRender()
     } else {
         isTextureBeingRendered = isTextureEnabled;
 
-        if(shadowLightIndices.empty()){
+        if(shadowLightIndices.empty() || !isShadowCastingEnabled){
             // FULL_LIGHTING without shadows
             pushProgram(phongLightingProgram);
             
@@ -1122,7 +1164,8 @@ void GLSLSceneRendererImpl::renderLights(LightingProgram* program)
         Affine3 T;
         self->getLightInfo(i, light, T);
         if(light->on()){
-            bool isCastingShadow = (shadowLightIndices.find(i) != shadowLightIndices.end());
+            bool isCastingShadow =
+                isShadowCastingEnabled && (shadowLightIndices.find(i) != shadowLightIndices.end());
             if(program->setLight(lightIndex, light, T, viewTransform, isCastingShadow)){
                 ++lightIndex;
             }
@@ -2538,4 +2581,10 @@ void GLSLSceneRenderer::setLowMemoryConsumptionMode(bool on)
         impl->isLowMemoryConsumptionMode = on;
         requestToClearResources();
     }
+}
+
+
+bool GLSLSceneRenderer::isShadowCastingAvailable() const
+{
+    return impl->isShadowCastingEnabled;
 }

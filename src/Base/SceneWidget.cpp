@@ -122,19 +122,20 @@ public:
     DoubleSpinBox worldLightIntensitySpin;
     DoubleSpinBox worldLightAmbientSpin;
     CheckBox additionalLightsCheck;
+    CheckBox textureCheck;
+    CheckBox fogCheck;
     struct Shadow {
         CheckBox check;
+        QLabel lightLabel;
         SpinBox lightSpin;
     };
     Shadow shadows[NUM_SHADOWS];
     CheckBox shadowAntiAliasingCheck;
-    CheckBox fogCheck;
     CheckBox gridCheck[3];
     DoubleSpinBox gridSpanSpin[3];
     DoubleSpinBox gridIntervalSpin[3];
     PushButton backgroundColorButton;
     CheckBox coordinateAxesCheck;
-    CheckBox textureCheck;
     PushButton defaultColorButton;
     DoubleSpinBox pointSizeSpin;
     DoubleSpinBox lineWidthSpin;
@@ -143,16 +144,16 @@ public:
     CheckBox normalVisualizationCheck;
     DoubleSpinBox normalLengthSpin;
     CheckBox lightweightViewChangeCheck;
-    CheckBox fpsCheck;
+    //CheckBox fpsCheck;
     PushButton fpsTestButton;
     SpinBox fpsTestIterationSpin;
-    CheckBox newDisplayListDoubleRenderingCheck;
     CheckBox collisionVisualizationButtonsCheck;
     CheckBox upsideDownCheck;
 
     LazyCaller updateDefaultLightsLater;
 
-    ConfigDialog(SceneWidgetImpl* impl, bool useGLSL);
+    ConfigDialog(SceneWidgetImpl* impl);
+    void showEvent(QShowEvent* event);
     void updateBuiltinCameraConfig();
     void storeState(Archive& archive);
     void restoreState(const Archive& archive);
@@ -331,7 +332,7 @@ public:
     static void onOpenGLVSyncToggled(bool on, bool doConfigOutput);
     static void onLowMemoryConsumptionModeChanged(bool on, bool doConfigOutput);
 
-    SceneWidgetImpl(SceneWidget* self, bool useGLSL);
+    SceneWidgetImpl(SceneWidget* self);
     ~SceneWidgetImpl();
 
     void onVSyncModeChanged();
@@ -385,7 +386,6 @@ public:
     void onEntityRemoved(SgNode* node);
 
     void showPickingBufferImageWindow();
-    void onNewDisplayListDoubleRenderingToggled(bool on);
     void onUpsideDownToggled(bool on);
         
     void updateLatestEvent(QKeyEvent* event);
@@ -535,8 +535,7 @@ void SceneWidget::forEachInstance(SgNode* node, std::function<void(SceneWidget* 
 
 SceneWidget::SceneWidget()
 {
-    bool useGLSL = (getenv("CNOID_USE_GLSL") != 0);
-    impl = new SceneWidgetImpl(this, useGLSL);
+    impl = new SceneWidgetImpl(this);
 
     QVBoxLayout* vbox = new QVBoxLayout;
     vbox->setContentsMargins(0, 0, 0, 0);
@@ -547,7 +546,7 @@ SceneWidget::SceneWidget()
 }
 
 
-SceneWidgetImpl::SceneWidgetImpl(SceneWidget* self, bool useGLSL)
+SceneWidgetImpl::SceneWidgetImpl(SceneWidget* self)
     : QOpenGLWidget(self),
       self(self),
       os(MessageView::mainInstance()->cout()),
@@ -558,14 +557,11 @@ SceneWidgetImpl::SceneWidgetImpl(SceneWidget* self, bool useGLSL)
 {
     setFocusPolicy(Qt::WheelFocus);
 
-    if(useGLSL){
-        auto r = new GLSLSceneRenderer(sceneRoot);
-        r->setLowMemoryConsumptionMode(isLowMemoryConsumptionMode);
-        renderer = r;
-    } else {
-        renderer = new GL1SceneRenderer(sceneRoot);
+    renderer = GLSceneRenderer::create(sceneRoot);
+    if(auto glslRenderer = dynamic_cast<GLSLSceneRenderer*>(renderer)){
+        glslRenderer->setLowMemoryConsumptionMode(isLowMemoryConsumptionMode);
     }
-    
+        
     renderer->setOutputStream(os);
     renderer->enableUnusedResourceCheck(true);
     renderer->sigRenderingRequest().connect([&](){ update(); });
@@ -640,7 +636,7 @@ SceneWidgetImpl::SceneWidgetImpl(SceneWidget* self, bool useGLSL)
     timerToRenderNormallyAfterInteractiveCameraPositionChange.sigTimeout().connect(
         [&](){ tryToResumeNormalRendering(); });
 
-    config = new ConfigDialog(this, useGLSL);
+    config = new ConfigDialog(this);
     config->updateBuiltinCameraConfig();
 
     worldLight = new SgDirectionalLight;
@@ -667,11 +663,12 @@ SceneWidgetImpl::SceneWidgetImpl(SceneWidget* self, bool useGLSL)
 
     updateGrids();
 
-    if(!useGLSL){
-        fpsTimer.sigTimeout().connect([&](){ onFPSUpdateRequest(); });
-        fpsRenderingTimer.setSingleShot(true);
-        fpsRenderingTimer.sigTimeout().connect([&](){ onFPSRenderingRequest(); });
-    }
+    /*
+    fpsTimer.sigTimeout().connect([&](){ onFPSUpdateRequest(); });
+    fpsRenderingTimer.setSingleShot(true);
+    fpsRenderingTimer.sigTimeout().connect([&](){ onFPSRenderingRequest(); });
+    */
+
     isDoingFPSTest = false;
 
     sigVSyncModeChanged.connect([&](){ onVSyncModeChanged(); });
@@ -1145,14 +1142,6 @@ void SceneWidgetImpl::showPickingBufferImageWindow()
             pickingBufferImageWindow = new ImageWindow(vp[2], vp[3]);
         }
         pickingBufferImageWindow->show();
-    }
-}
-
-
-void SceneWidgetImpl::onNewDisplayListDoubleRenderingToggled(bool on)
-{
-    if(GL1SceneRenderer* gl1Renderer = dynamic_cast<GL1SceneRenderer*>(renderer)){
-        gl1Renderer->setNewDisplayListDoubleRenderingEnabled(on);
     }
 }
 
@@ -2525,12 +2514,6 @@ void SceneWidget::setCoordinateAxes(bool on)
 }
 
 
-void SceneWidget::setNewDisplayListDoubleRenderingEnabled(bool on)
-{
-    impl->config->newDisplayListDoubleRenderingCheck.setChecked(on);
-}
-
-
 void SceneWidget::setBackgroundColor(const Vector3& color)
 {
     impl->renderer->setBackgroundColor(color.cast<float>());
@@ -3030,7 +3013,7 @@ void SceneWidgetImpl::activateSystemNode(SgNode* node, bool on)
 }
 
 
-ConfigDialog::ConfigDialog(SceneWidgetImpl* impl, bool useGLSL)
+ConfigDialog::ConfigDialog(SceneWidgetImpl* impl)
     : sceneWidgetImpl(impl),
       lightingMode(3, CNOID_GETTEXT_DOMAIN_NAME),
       cullingMode(GLSceneRenderer::N_CULLING_MODES, CNOID_GETTEXT_DOMAIN_NAME)
@@ -3187,13 +3170,27 @@ ConfigDialog::ConfigDialog(SceneWidgetImpl* impl, bool useGLSL)
     vbox->addLayout(grid);
 
     hbox = new QHBoxLayout;
+    textureCheck.setText(_("Texture"));
+    textureCheck.setChecked(true);
+    textureCheck.sigToggled().connect([=](bool on){ impl->onTextureToggled(on); });
+    hbox->addWidget(&textureCheck);
+
+    fogCheck.setText(_("Fog"));
+    fogCheck.setChecked(true);
+    fogCheck.sigToggled().connect([&](bool){ updateDefaultLightsLater(); });
+    hbox->addWidget(&fogCheck);
+    hbox->addStretch();
+    vbox->addLayout(hbox);
+    
+    hbox = new QHBoxLayout;
     for(int i=0; i < NUM_SHADOWS; ++i){
         Shadow& shadow = shadows[i];
         shadow.check.setText(QString(_("Shadow %1")).arg(i+1));
         shadow.check.setChecked(false);
         shadow.check.sigToggled().connect([&](bool){ updateDefaultLightsLater(); });
         hbox->addWidget(&shadow.check);
-        hbox->addWidget(new QLabel(_("Light")));
+        shadow.lightLabel.setText(_("Light"));
+        hbox->addWidget(&shadow.lightLabel);
         shadow.lightSpin.setRange(0, 99);
         shadow.lightSpin.setValue(0);
         shadow.lightSpin.sigValueChanged().connect([&](double){ updateDefaultLightsLater(); });
@@ -3207,19 +3204,6 @@ ConfigDialog::ConfigDialog(SceneWidgetImpl* impl, bool useGLSL)
     hbox->addStretch();
     vbox->addLayout(hbox);
 
-    hbox = new QHBoxLayout;
-    fogCheck.setText(_("Fog"));
-    fogCheck.setChecked(true);
-    fogCheck.sigToggled().connect([&](bool){ updateDefaultLightsLater(); });
-    hbox->addWidget(&fogCheck);
-
-    textureCheck.setText(_("Texture"));
-    textureCheck.setChecked(true);
-    textureCheck.sigToggled().connect([=](bool on){ impl->onTextureToggled(on); });
-    hbox->addWidget(&textureCheck);
-    hbox->addStretch();
-    vbox->addLayout(hbox);
-    
     vbox->addLayout(new HSeparatorBox(new QLabel(_("Background"))));
 
     grid = new QGridLayout;
@@ -3333,11 +3317,8 @@ ConfigDialog::ConfigDialog(SceneWidgetImpl* impl, bool useGLSL)
 
     /*
     fpsCheck.setText(_("Show FPS"));
-    fpsCheck.setEnabled(!useGLSL);
     fpsCheck.setChecked(false);
-    if(!useGLSL){
-        fpsCheck.sigToggled().connect([=](bool on){ impl->showFPS(on); });
-    }
+    fpsCheck.sigToggled().connect([=](bool on){ impl->showFPS(on); });
     hbox->addWidget(&fpsCheck);
     */
 
@@ -3352,14 +3333,6 @@ ConfigDialog::ConfigDialog(SceneWidgetImpl* impl, bool useGLSL)
     pickingBufferButton->sigClicked().connect([=](){ impl->showPickingBufferImageWindow(); });
     hbox->addWidget(pickingBufferButton);
     
-    hbox->addStretch();
-    vbox->addLayout(hbox);
-
-    hbox = new QHBoxLayout;
-    newDisplayListDoubleRenderingCheck.setText(_("Do double rendering when a new display list is created (fixed shader)."));
-    newDisplayListDoubleRenderingCheck.sigToggled().connect(
-        [=](bool on){ impl->onNewDisplayListDoubleRenderingToggled(on); });
-    hbox->addWidget(&newDisplayListDoubleRenderingCheck);
     hbox->addStretch();
     vbox->addLayout(hbox);
 
@@ -3395,6 +3368,22 @@ ConfigDialog::ConfigDialog(SceneWidgetImpl* impl, bool useGLSL)
 }
 
 
+void ConfigDialog::showEvent(QShowEvent* event)
+{
+    if(!sceneWidgetImpl->renderer->isShadowCastingAvailable()){
+        for(int i=0; i < NUM_SHADOWS; ++i){
+            auto& shadow = shadows[i];
+            auto& check = shadow.check;
+            check.setEnabled(false);
+            check.setChecked(false);
+            shadow.lightLabel.setEnabled(false);
+            shadow.lightSpin.setEnabled(false);
+        }
+        shadowAntiAliasingCheck.setEnabled(false);
+    }
+}
+            
+    
 void ConfigDialog::updateBuiltinCameraConfig()
 {
     auto persCamera = sceneWidgetImpl->builtinPersCamera;
@@ -3453,8 +3442,7 @@ void ConfigDialog::storeState(Archive& archive)
     archive.write("lightweightViewChange", lightweightViewChangeCheck.isChecked());
     archive.write("coordinateAxes", coordinateAxesCheck.isChecked());
     archive.write("fpsTestIteration", fpsTestIterationSpin.value());
-    archive.write("showFPS", fpsCheck.isChecked());
-    archive.write("enableNewDisplayListDoubleRendering", newDisplayListDoubleRenderingCheck.isChecked());
+    //archive.write("showFPS", fpsCheck.isChecked());
     archive.write("upsideDown", upsideDownCheck.isChecked());
 }
 
@@ -3517,8 +3505,6 @@ void ConfigDialog::restoreState(const Archive& archive)
     lightweightViewChangeCheck.setChecked(archive.get("lightweightViewChange", lightweightViewChangeCheck.isChecked()));
 
     fpsTestIterationSpin.setValue(archive.get("fpsTestIteration", fpsTestIterationSpin.value()));
-    fpsCheck.setChecked(archive.get("showFPS", fpsCheck.isChecked()));
-    newDisplayListDoubleRenderingCheck.setChecked(
-        archive.get("enableNewDisplayListDoubleRendering", newDisplayListDoubleRenderingCheck.isChecked()));
+    //fpsCheck.setChecked(archive.get("showFPS", fpsCheck.isChecked()));
     upsideDownCheck.setChecked(archive.get("upsideDown", upsideDownCheck.isChecked()));
 }
