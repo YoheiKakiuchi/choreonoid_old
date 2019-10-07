@@ -10,7 +10,6 @@
 #include "Link.h"
 #include "ExtraJoint.h"
 #include "DeviceList.h"
-#include "MassMatrix.h"
 #include "exportdecl.h"
 
 namespace cnoid {
@@ -19,6 +18,7 @@ class Body;
 class BodyImpl;
 class BodyHandler;
 class Mapping;
+class BodyCloneMap;
 class SgCloneMap;
 
 struct BodyInterface;
@@ -26,19 +26,19 @@ struct BodyCustomizerInterface;
 typedef void* BodyCustomizerHandle;
 
 typedef ref_ptr<Body> BodyPtr;
-    
 
 class CNOID_EXPORT Body : public Referenced
 {
 public:
     Body();
-    Body(const Body& org);
+    Body(const Body& org) = delete;
+    virtual ~Body();
 
-    virtual Body* clone() const;
+    void copyFrom(const Body* org, BodyCloneMap* cloneMap = nullptr);
+    Body* clone() const { return doClone(nullptr); }
+    Body* clone(BodyCloneMap& cloneMap) const { return doClone(&cloneMap); }
 
     virtual Link* createLink(const Link* org = 0) const;
-
-    virtual ~Body();
 
     const std::string& name() const;
     void setName(const std::string& name);
@@ -97,6 +97,8 @@ public:
     Link* rootLink() const {
         return rootLink_;
     }
+
+    Link* findUniqueEndLink() const;
 
     /**
        The number of the links that are actual joints.
@@ -183,11 +185,19 @@ public:
         return dynamic_cast<DeviceType*>(findDeviceSub(name));
     }
 
+    template<class DeviceType> DeviceType* findDevice() const {
+        for(auto& device : devices_)
+            if(auto found = dynamic_cast<DeviceType*>(device.get()))
+                return found;
+        return nullptr;
+    }
+
     Device* findDevice(const std::string& name) const {
         return findDeviceSub(name);
     }
     
-    void addDevice(Device* device);
+    void addDevice(Device* device, Link* link);
+    void addDevice(Device* device); //! \deprecated
     void initializeDeviceStates();
     void clearDevices();
 
@@ -229,7 +239,7 @@ public:
 
     void cloneShapes(SgCloneMap& cloneMap);
         
-    template<class T> T* findCache(const std::string& name) {
+    template<class T> T* findCache(const std::string& name){
         return dynamic_cast<T*>(findCacheSub(name));
     }
 
@@ -237,13 +247,17 @@ public:
         return dynamic_cast<const T*>(findCacheSub(name));
     }
 
-    template<class T> T* getOrCreateCache(const std::string& name) {
+    template<class T> T* getOrCreateCache(const std::string& name){
         T* cache = findCache<T>(name);
         if(!cache){
             cache = new T();
             insertCache(name, cache);
         }
         return cache;
+    }
+
+    void setCache(const std::string& name, Referenced* cache){
+        insertCache(name, cache);
     }
 
     bool getCaches(PolymorphicReferencedArrayBase<>& out_caches, std::vector<std::string>& out_names) const;
@@ -271,7 +285,8 @@ public:
     static BodyInterface* bodyInterface();
 
 protected:
-    void copy(const Body& org);
+    Body(Link* rootLink);
+    virtual Body* doClone(BodyCloneMap* cloneMap) const;
 
 private:
     LinkTraverse linkTraverse_;
@@ -285,7 +300,7 @@ private:
     BodyImpl* impl;
 
     void initialize();
-    Link* cloneLinkTree(const Link* orgLink);
+    Link* cloneLinkTree(const Link* orgLink, BodyCloneMap* cloneMap);
     Link* createEmptyJoint(int jointId);
     Device* findDeviceSub(const std::string& name) const;
     Referenced* findCacheSub(const std::string& name);

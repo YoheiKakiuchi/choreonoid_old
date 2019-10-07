@@ -8,6 +8,7 @@
 #include "KinematicsBar.h"
 #include "EditableSceneBody.h"
 #include "LinkSelectionView.h"
+#include "CoordinateFrameSetPairItem.h"
 #include <cnoid/LeggedBodyHelper>
 #include <cnoid/YAMLReader>
 #include <cnoid/EigenArchive>
@@ -30,6 +31,8 @@
 #include <cnoid/CompositeBodyIK>
 #include <cnoid/PinDragIK>
 #include <cnoid/PenetrationBlocker>
+#include <cnoid/AttachmentDevice>
+#include <cnoid/HolderDevice>
 #include <cnoid/FileUtil>
 #include <cnoid/EigenArchive>
 #include <fmt/format.h>
@@ -50,20 +53,11 @@ const bool TRACE_FUNCTIONS = false;
 BodyLoader bodyLoader;
 BodyState kinematicStateCopy;
 
-struct AttachmentInfo {
-    string category;
-    Link* link;
-    Position T;
-};
-
-struct Attachment {
-    BodyItem* baseBodyItem;
-    Link* baseLink;
-    Position T_base_local;
-    Position T_local;
-    bool isBaseKinematicStateChangedNotificationReqruied;
-    string category;
+struct BodyAttachment {
+    AttachmentDevicePtr attachment;
+    BodyItem* holderBodyItem;
     ScopedConnection connection;
+    bool isKinematicStateChangeNotificationToHolderBodyRequired;
 };
 
 class MyCompositeBodyIK : public CompositeBodyIK
@@ -74,8 +68,8 @@ public:
     virtual std::shared_ptr<InverseKinematics> getParentBodyIK() override;
 
     BodyItemImpl* bodyItemImpl;
-    unique_ptr<Attachment>& attachment;
-    shared_ptr<InverseKinematics> baseIK;
+    unique_ptr<BodyAttachment>& bodyAttachment;
+    shared_ptr<InverseKinematics> holderIK;
 };
 
 }
@@ -121,7 +115,7 @@ public:
 
     Signal<void()> sigModelUpdated;
 
-    unique_ptr<Attachment> attachment;
+    unique_ptr<BodyAttachment> bodyAttachment;
 
     LeggedBodyHelperPtr legged;
     Vector3 zmp;
@@ -156,9 +150,9 @@ public:
     void createSceneBody();
     bool onEditableChanged(bool on);
     void tryToAttachToBodyItem(BodyItem* bodyItem);
-    bool attachToBodyItem(BodyItem* bodyItem, const AttachmentInfo& baseInfo, const AttachmentInfo& info);
-    void clearAttachment();
-    void onBaseBodyKinematicStateChanged();
+    bool attachToBodyItem(AttachmentDevice* attachment, BodyItem* bodyItem, HolderDevice* holder);
+    void clearBodyAttachment();
+    void onHolderBodyKinematicStateChanged();
     void doPutProperties(PutPropertyFunction& putProperty);
     bool store(Archive& archive);
     bool restore(const Archive& archive);
@@ -323,9 +317,59 @@ void BodyItemImpl::initBody(bool calledFromCopyConstructor)
 }
 
 
+bool BodyItem::loadModelFile(const std::string& filename)
+{
+    return impl->loadModelFile(filename);
+}
+
+
+bool BodyItemImpl::loadModelFile(const std::string& filename)
+{
+    bodyLoader.setMessageSink(MessageView::instance()->cout());
+
+    BodyPtr newBody = new Body;
+    newBody->setName(self->name());
+
+    bool loaded = bodyLoader.load(newBody, filename);
+    if(loaded){
+        body = newBody;
+        body->initializePosition();
+        body->setCurrentTimeFunction([](){ return TimeBar::instance()->time(); });
+    }
+
+    initBody(false);
+
+    return loaded;
+}
+
+
 Body* BodyItem::body() const
 {
     return impl->body.get();
+}
+
+
+void BodyItem::setBody(Body* body)
+{
+    impl->setBody(body);
+}
+
+
+void BodyItemImpl::setBody(Body* body_)
+{
+    body = body_;
+    body->initializePosition();
+
+    initBody(false);
+}
+
+
+void BodyItem::setName(const std::string& name)
+{
+    if(impl->body){
+        impl->body->setName(name);
+    }
+    Item::setName(name);
 }
 
 
@@ -353,56 +397,6 @@ SignalProxy<void()> BodyItem::sigKinematicStateChanged()
 SignalProxy<void()> BodyItem::sigKinematicStateEdited()
 {
     return impl->sigKinematicStateEdited.signal();
-}
-
-
-bool BodyItem::loadModelFile(const std::string& filename)
-{
-    return impl->loadModelFile(filename);
-}
-
-
-bool BodyItemImpl::loadModelFile(const std::string& filename)
-{
-    bodyLoader.setMessageSink(MessageView::instance()->cout());
-
-    BodyPtr newBody = new Body;
-    newBody->setName(self->name());
-
-    bool loaded = bodyLoader.load(newBody, filename);
-    if(loaded){
-        body = newBody;
-        body->initializePosition();
-        body->setCurrentTimeFunction([](){ return TimeBar::instance()->time(); });
-    }
-
-    initBody(false);
-
-    return loaded;
-}
-
-
-void BodyItem::setBody(Body* body)
-{
-    impl->setBody(body);
-}
-
-
-void BodyItemImpl::setBody(Body* body_)
-{
-    body = body_;
-    body->initializePosition();
-
-    initBody(false);
-}
-
-
-void BodyItem::setName(const std::string& name)
-{
-    if(impl->body){
-        impl->body->setName(name);
-    }
-    Item::setName(name);
 }
 
 
@@ -641,6 +635,28 @@ bool BodyItemImpl::redoKinematicState()
     }
     return false;
 }
+
+
+CoordinateFrameSetPair* BodyItem::getCoordinateFrameSetPair() const
+{
+    ItemList<CoordinateFrameSetPairItem> lowerItems;
+    if(lowerItems.extractSubTreeItems(this)){
+        return lowerItems.toSingle()->frameSetPair();
+    }
+    auto upperItem = parentItem();
+    while(upperItem){
+        if(auto frameSetPairItem = dynamic_cast<CoordinateFrameSetPairItem*>(upperItem)){
+            return frameSetPairItem->frameSetPair();
+        }
+        if(auto worldItem = dynamic_cast<WorldItem*>(upperItem)){
+            ItemList<CoordinateFrameSetPairItem> lowerItems;
+            if(lowerItems.extractSubTreeItems(worldItem)){
+                return lowerItems.toSingle()->frameSetPair();
+            }
+        }
+    }
+    return nullptr;
+}
         
 
 std::shared_ptr<PinDragIK> BodyItem::pinDragIK()
@@ -664,7 +680,7 @@ void BodyItemImpl::getCurrentIK(Link* targetLink, shared_ptr<InverseKinematics>&
 {
     auto rootLink = body->rootLink();
     
-    if(attachment && targetLink == rootLink){
+    if(bodyAttachment && targetLink == rootLink){
         ik = make_shared<MyCompositeBodyIK>(this);
     }
 
@@ -685,7 +701,7 @@ void BodyItemImpl::getCurrentIK(Link* targetLink, shared_ptr<InverseKinematics>&
     }
     if(!ik){
         auto baseLink = currentBaseLink ? currentBaseLink.get() : rootLink;
-        ik = getCustomJointPath(body, baseLink, targetLink);
+        ik = JointPath::getCustomPath(body, baseLink, targetLink);
     }
 }
 
@@ -708,7 +724,7 @@ void BodyItemImpl::getDefaultIK(Link* targetLink, shared_ptr<InverseKinematics>&
             Link* baseLink = body->link(setup[0].toString());
             if(baseLink){
                 if(setup.size() == 1){
-                    ik = getCustomJointPath(body, baseLink, targetLink);
+                    ik = JointPath::getCustomPath(body, baseLink, targetLink);
                 } else {
                     auto compositeIK = make_shared<CompositeIK>(body, targetLink);
                     ik = compositeIK;
@@ -946,9 +962,9 @@ void BodyItemImpl::notifyKinematicStateChange(bool requestFK, bool requestVelFK,
 
     updateFlags.reset();
 
-    if(attachment && attachment->isBaseKinematicStateChangedNotificationReqruied){
-        attachment->isBaseKinematicStateChangedNotificationReqruied = false;
-        attachment->baseBodyItem->impl->notifyKinematicStateChange(
+    if(bodyAttachment && bodyAttachment->isKinematicStateChangeNotificationToHolderBodyRequired){
+        bodyAttachment->isKinematicStateChangeNotificationToHolderBodyRequired = false;
+        bodyAttachment->holderBodyItem->impl->notifyKinematicStateChange(
             requestFK, requestVelFK, requestAccFK, isDirect);
 
     } else {
@@ -1155,8 +1171,8 @@ void BodyItem::onPositionChanged()
     }
 
     auto ownerBodyItem = findOwnerItem<BodyItem>();
-    if(!impl->attachment || (impl->attachment->baseBodyItem != ownerBodyItem)){
-        impl->clearAttachment();
+    if(!impl->bodyAttachment || (impl->bodyAttachment->holderBodyItem != ownerBodyItem)){
+        impl->clearBodyAttachment();
         if(ownerBodyItem){
             impl->tryToAttachToBodyItem(ownerBodyItem);
         }
@@ -1216,77 +1232,21 @@ bool BodyItemImpl::onEditableChanged(bool on)
 }
 
 
-static stdx::optional<AttachmentInfo> readAttachmentInfo(Mapping& node, const Body* body, bool isBase)
-{
-    AttachmentInfo info;
-    if(node.read("category", info.category)){
-        if(isBase){
-            string linkName;
-            if(node.read("link", linkName)){
-                info.link = body->link(linkName);
-                if(!info.link){
-                    return stdx::nullopt;
-                }
-            }
-        } else {
-            info.link = nullptr;
-        }
-        info.T.setIdentity();
-        Vector3 translation;
-        if(read(node, "translation", translation)){
-            info.T.translation() = translation;
-        }
-        AngleAxis rotation;
-        if(read(node, "rotation", rotation)){
-            info.T.linear() = rotation.toRotationMatrix();
-        }
-        return info;
-    }
-    return stdx::nullopt;
-}
-
-
-static vector<AttachmentInfo> readAttachmentBases(const Body* body)
-{
-    vector<AttachmentInfo> infos;
-    auto nodes = body->info()->findListing("attachmentBases");
-    if(nodes->isValid()){
-        infos.reserve(nodes->size());
-        for(auto& node : *nodes){
-            if(node->isMapping()){
-                auto info = readAttachmentInfo(*node->toMapping(), body, true);
-                if(info){
-                    infos.push_back(*info);
-                }
-            }
-        }
-    }
-    return infos;
-}
-
-
 void BodyItemImpl::tryToAttachToBodyItem(BodyItem* bodyItem)
 {
     bool attached = false;
-    
-    auto node = body->info()->findMapping("attachment");
-    if(node->isValid()){
-        auto attachment = readAttachmentInfo(*node, body, false);
-        if(attachment){
-            auto attachmentBases = readAttachmentBases(bodyItem->body());
-            if(!attachmentBases.empty()){
-                for(auto& base : attachmentBases){
-                    if(base.category == (*attachment).category){
-                        if(attachToBodyItem(bodyItem, base, *attachment)){
-                            attached = true;
-                            break;
-                        }
-                    }
+    auto attachments = body->devices<AttachmentDevice>();
+    for(auto& attachment : attachments){
+        auto holders = bodyItem->body()->devices<HolderDevice>();
+        for(auto& holder : holders){
+            if(attachment->category() == holder->category()){
+                if(attachToBodyItem(attachment, bodyItem, holder)){
+                    attached = true;
+                    break;
                 }
             }
         }
     }
-
     if(!attached){
         mvout() << format(_("{0} cannot be attached to {1}."),
                           self->name(), bodyItem->name()) << endl;
@@ -1295,73 +1255,94 @@ void BodyItemImpl::tryToAttachToBodyItem(BodyItem* bodyItem)
 
 
 bool BodyItemImpl::attachToBodyItem
-(BodyItem* bodyItem, const AttachmentInfo& baseInfo, const AttachmentInfo& info)
+(AttachmentDevice* attachment, BodyItem* bodyItem, HolderDevice* holder)
 {
-    attachment.reset(new Attachment);
+    if(holder->attachment()){
+        return false;
+    }
+    holder->setAttachment(attachment);
+    holder->on(true);
+    attachment->setHolder(holder);
+    attachment->on(true);
+
+    bodyAttachment.reset(new BodyAttachment);
+    bodyAttachment->attachment = attachment;
+    bodyAttachment->holderBodyItem = bodyItem;
     
-    attachment->baseBodyItem = bodyItem;
-    attachment->baseLink = baseInfo.link;
-    attachment->T_base_local = baseInfo.T;
-    attachment->T_local = info.T;
-    attachment->isBaseKinematicStateChangedNotificationReqruied = false;
-    attachment->category = info.category;
-
-    mvout() << format(_("{0} has been attached to {1} of {2}."),
-                      self->name(), baseInfo.link->name(), bodyItem->name()) << endl;
-
-    attachment->connection =
+    bodyAttachment->connection =
         bodyItem->sigKinematicStateChanged().connect(
-            [&](){ onBaseBodyKinematicStateChanged(); });
+            [&](){ onHolderBodyKinematicStateChanged(); });
 
-    onBaseBodyKinematicStateChanged();
+    bodyAttachment->isKinematicStateChangeNotificationToHolderBodyRequired = false;
+    
+    mvout() << format(_("{0} has been attached to {1} of {2}."),
+                      self->name(), holder->link()->name(), bodyItem->name()) << endl;
+
+    onHolderBodyKinematicStateChanged();
 
     return true;
 }
 
 
-void BodyItemImpl::clearAttachment()
+void BodyItemImpl::clearBodyAttachment()
 {
-    if(attachment){
-        auto baseLink = attachment->baseLink;
-        if(baseLink){
+    if(bodyAttachment){
+        auto attachment = bodyAttachment->attachment;
+        auto holder = attachment->holder();
+        if(holder){
+            holder->setAttachment(nullptr);
+            holder->on(false);
+            auto holderLink = holder->link();
             mvout() << format(_("{0} has been detached from {1} of {2}."),
-                              self->name(), baseLink->name(), baseLink->body()->name()) << endl;
+                              self->name(), holderLink->name(), holderLink->body()->name()) << endl;
         }
-        attachment.reset();
+        attachment->setHolder(nullptr);
+        attachment->on(false);
+
+        bodyAttachment.reset();
     }
 }
 
 
-void BodyItemImpl::onBaseBodyKinematicStateChanged()
+void BodyItemImpl::onHolderBodyKinematicStateChanged()
 {
-    Position T_base = attachment->baseLink->T() * attachment->T_base_local;
-    body->rootLink()->T() = T_base * attachment->T_local.inverse(Eigen::Isometry);
-    attachment->isBaseKinematicStateChangedNotificationReqruied = false;
+    auto attachment = bodyAttachment->attachment;
+    auto holder = attachment->holder();
+    if(holder){
+        Position T_base = holder->link()->T() * holder->T_local();
+        body->rootLink()->T() = T_base * attachment->T_local().inverse(Eigen::Isometry);
+        bodyAttachment->isKinematicStateChangeNotificationToHolderBodyRequired = false;
 
-    //! \todo requestVelFK and requestAccFK should be set appropriately
-    notifyKinematicStateChange(true, false, false, true);
+        //! \todo requestVelFK and requestAccFK should be set appropriately
+        notifyKinematicStateChange(true, false, false, true);
+    }
 }
 
 
 MyCompositeBodyIK::MyCompositeBodyIK(BodyItemImpl* bodyItemImpl)
     : bodyItemImpl(bodyItemImpl),
-      attachment(bodyItemImpl->attachment)
+      bodyAttachment(bodyItemImpl->bodyAttachment)
 {
-    baseIK = attachment->baseBodyItem->getCurrentIK(attachment->baseLink);
+    auto holderLink = bodyAttachment->attachment->holder()->link();
+    holderIK = bodyAttachment->holderBodyItem->getCurrentIK(holderLink);
 }
 
 
 bool MyCompositeBodyIK::calcInverseKinematics(const Position& T)
 {
     bool result = false;
-    if(baseIK){
-        if(!attachment){
-            baseIK.reset();
+    if(holderIK){
+        if(!bodyAttachment){
+            holderIK.reset();
         } else {
-            Position Ta = T * attachment->T_local * attachment->T_base_local.inverse(Eigen::Isometry);
-            result = baseIK->calcInverseKinematics(Ta);
-            if(result){
-                attachment->isBaseKinematicStateChangedNotificationReqruied = true;
+            auto attachment = bodyAttachment->attachment;
+            auto holder = attachment->holder();
+            if(holder){
+                Position Ta = T * attachment->T_local() * holder->T_local().inverse(Eigen::Isometry);
+                result = holderIK->calcInverseKinematics(Ta);
+                if(result){
+                    bodyAttachment->isKinematicStateChangeNotificationToHolderBodyRequired = true;
+                }
             }
         }
     }
@@ -1371,7 +1352,7 @@ bool MyCompositeBodyIK::calcInverseKinematics(const Position& T)
 
 std::shared_ptr<InverseKinematics> MyCompositeBodyIK::getParentBodyIK()
 {
-    return baseIK;
+    return holderIK;
 }
 
 

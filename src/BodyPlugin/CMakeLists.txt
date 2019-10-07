@@ -6,12 +6,10 @@
 
 set(sources
   BodyPlugin.cpp
-  BodyItem.cpp
   WorldItem.cpp
-  BodyMotionItem.cpp
-  ZMPSeqItem.cpp
-  MultiDeviceStateSeqItem.cpp
-  WorldLogFileItem.cpp
+  CoordinateFrameSetPairItem.cpp
+  CoordinateFrameSetItem.cpp
+  BodyItem.cpp
   SimulatorItem.cpp
   SubSimulatorItem.cpp
   ControllerItem.cpp
@@ -19,8 +17,14 @@ set(sources
   BodyMotionControllerItem.cpp
   SimulationScriptItem.cpp
   AISTSimulatorItem.cpp
+  KinematicSimulatorItem.cpp
   GLVisionSimulatorItem.cpp
   FisheyeLensConverter.cpp
+  BodyMotionItem.cpp
+  ZMPSeqItem.cpp
+  MultiDeviceStateSeqItem.cpp
+  WorldLogFileItem.cpp
+  IoConnectionMapItem.cpp
   SensorVisualizerItem.cpp
   BodyTrackingCameraItem.cpp
   BodyMarkerItem.cpp
@@ -38,8 +42,10 @@ set(sources
   LinkPositionView.cpp
   BodyLinkView.cpp
   JointDisplacementView.cpp
+  CoordinateFrameSetView.cpp
   JointStateView.cpp
   BodyStateView.cpp
+  IoConnectionView.cpp
   JointGraphView.cpp
   LinkGraphView.cpp
   HrpsysFileIO.cpp
@@ -49,19 +55,23 @@ set(sources
   )
 
 set(headers
-  BodyItem.h
   WorldItem.h
-  BodyMotionItem.h
-  ZMPSeqItem.cpp
-  MultiDeviceStateSeqItem.h
-  WorldLogFileItem.h
+  BodyItem.h
+  CoordinateFrameSetPairItem.h
+  CoordinateFrameSetItem.h
   SimulatorItem.h
   SubSimulatorItem.h
   ControllerItem.h
   SimpleControllerItem.h
   SimulationScriptItem.h
   AISTSimulatorItem.h
+  KinematicSimulatorItem.h
   GLVisionSimulatorItem.h
+  BodyMotionItem.h
+  ZMPSeqItem.h
+  MultiDeviceStateSeqItem.h
+  WorldLogFileItem.h
+  IoConnectionMapItem.h
   SensorVisualizerItem.h
   BodyTrackingCameraItem.h
   BodyMarkerItem.h

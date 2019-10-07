@@ -24,7 +24,8 @@ set(sources
   ItemPath.cpp
   ItemTreeView.cpp
   ItemPropertyView.cpp
-  SelectionListEditor.cpp
+  TargetItemPicker.cpp
+  StringListComboBox.cpp
   MultiSeqItemCreationPanel.cpp
   ToolBar.cpp
   TimeBar.cpp
@@ -165,6 +166,7 @@ set(headers
   ItemTreeView.h
   ItemList.h
   Item.h
+  TargetItemPicker.h
   PutPropertyFunction.h
   RootItem.h
   FolderItem.h
@@ -248,8 +250,7 @@ set(qtheaders
   Timer.h
   SocketNotifier.h
   InfoBar.h
-  ItemTreeView.h
-  SelectionListEditor.h
+  StringListComboBox.h
   TextEdit.h
   )
 

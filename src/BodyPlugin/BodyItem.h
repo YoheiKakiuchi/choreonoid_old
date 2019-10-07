@@ -19,6 +19,8 @@ class BodyState;
 class BodyItem;
 typedef ref_ptr<BodyItem> BodyItemPtr;
 class BodyItemImpl;
+class CoordinateFrameSetPair;
+typedef ref_ptr<CoordinateFrameSetPair> CoordinateFrameSetPairPtr;
 class InverseKinematics;
 class PinDragIK;
 class PenetrationBlocker;
@@ -34,20 +36,14 @@ public:
     virtual ~BodyItem();
 
     bool loadModelFile(const std::string& filename);
-
-    void setBody(Body* body);
-            
-    virtual void setName(const std::string& name) override;
-
     Body* body() const;
-
+    void setBody(Body* body);
+    virtual void setName(const std::string& name) override;
     bool isEditable() const;
     void setEditable(bool on);
         
-    enum PresetPoseID { INITIAL_POSE, STANDARD_POSE };
-
     void moveToOrigin();
-
+    enum PresetPoseID { INITIAL_POSE, STANDARD_POSE };
     void setPresetPose(PresetPoseID id);
 
     Link* currentBaseLink() const;
@@ -73,6 +69,8 @@ public:
     void acceptKinematicStateEdit();
     bool undoKinematicState();
     bool redoKinematicState();
+
+    CoordinateFrameSetPair* getCoordinateFrameSetPair() const;
 
     std::shared_ptr<PinDragIK> pinDragIK();
     std::shared_ptr<InverseKinematics> getCurrentIK(Link* targetLink);

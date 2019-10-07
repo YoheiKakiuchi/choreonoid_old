@@ -114,8 +114,8 @@ public:
     void setQuaternionSpinsVisible(bool on);
     void setBodyItem(BodyItem* bodyItem);
     void updateTargetLink(Link* link = nullptr);
+    void clearPanelValues();
     void updatePanel();
-    Link* findUniqueEndLink(Body* body) const;
     void updateRotationMatrixPanel(const Matrix3& R);
     void updateConfigurationPanel();
     void onPositionInput(InputElementSet inputElements);
@@ -149,6 +149,7 @@ LinkPositionViewImpl::LinkPositionViewImpl(LinkPositionView* self)
 {
     self->setDefaultLayoutArea(View::CENTER);
     createPanel();
+    clearPanelValues();
     self->setEnabled(false);
 
     linkSelectionView = LinkSelectionView::instance();
@@ -471,6 +472,8 @@ void LinkPositionViewImpl::setBodyItem(BodyItem* bodyItem)
 
         resetInputWidgetStyles();
         bodyItemConnections.disconnect();
+
+        clearPanelValues();
     
         if(bodyItem){
             bodyItemConnections.add(
@@ -511,7 +514,7 @@ void LinkPositionViewImpl::updateTargetLink(Link* link)
             if(selectedLinkIndex >= 0){
                 targetLink = body->link(selectedLinkIndex);
             } else {
-                targetLink = findUniqueEndLink(body);
+                targetLink = body->findUniqueEndLink();
                 if(!targetLink){
                     targetLink = body->rootLink();
                 }
@@ -564,21 +567,19 @@ void LinkPositionViewImpl::updateTargetLink(Link* link)
 }
 
 
-Link* LinkPositionViewImpl::findUniqueEndLink(Body* body) const
+void LinkPositionViewImpl::clearPanelValues()
 {
-    Link* endLink = nullptr;
-    Link* link = body->rootLink();
-    while(true){
-        if(!link->child()){
-            endLink = link;
-            break;
-        }
-        if(link->child()->sibling()){
-            break;
-        }
-        link = link->child();
+    userInputConnections.block();
+    
+    for(int i=0; i < 3; ++i){
+        xyzSpin[i].setValue(0.0);
+        rpySpin[i].setValue(0.0);
+        quatSpin[i].setValue(0.0);
     }
-    return endLink;
+    quatSpin[3].setValue(1.0);
+    updateRotationMatrixPanel(Matrix3::Identity());
+
+    userInputConnections.unblock();
 }
 
 

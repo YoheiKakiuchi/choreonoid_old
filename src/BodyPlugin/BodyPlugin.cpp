@@ -4,15 +4,19 @@
 
 #include "WorldItem.h"
 #include "BodyItem.h"
-#include "BodyMotionItem.h"
-#include "MultiDeviceStateSeqItem.h"
-#include "ZMPSeqItem.h"
+#include "CoordinateFrameSetPairItem.h"
+#include "CoordinateFrameSetItem.h"
 #include "SimulatorItem.h"
 #include "AISTSimulatorItem.h"
+#include "KinematicSimulatorItem.h"
 #include "SimpleControllerItem.h"
 #include "BodyMotionControllerItem.h"
 #include "GLVisionSimulatorItem.h"
+#include "BodyMotionItem.h"
+#include "ZMPSeqItem.h"
+#include "MultiDeviceStateSeqItem.h"
 #include "WorldLogFileItem.h"
+#include "IoConnectionMapItem.h"
 #include "SensorVisualizerItem.h"
 #include "BodyTrackingCameraItem.h"
 #include "BodyMarkerItem.h"
@@ -25,8 +29,10 @@
 #include "LinkPositionView.h"
 #include "BodyLinkView.h"
 #include "JointDisplacementView.h"
+#include "CoordinateFrameSetView.h"
 #include "JointStateView.h"
 #include "BodyStateView.h"
+#include "IoConnectionView.h"
 #include "JointGraphView.h"
 #include "LinkGraphView.h"
 #include "KinematicsBar.h"
@@ -70,13 +76,17 @@ public:
 
         WorldItem::initializeClass(this);
         BodyItem::initializeClass(this);
-        BodyMotionItem::initializeClass(this);
+        CoordinateFrameSetPairItem::initializeClass(this);
+        CoordinateFrameSetItem::initializeClass(this);
         SimulatorItem::initializeClass(this);
         AISTSimulatorItem::initializeClass(this);
+        KinematicSimulatorItem::initializeClass(this);
         SimpleControllerItem::initializeClass(this);
         BodyMotionControllerItem::initializeClass(this);
         GLVisionSimulatorItem::initializeClass(this);
+        BodyMotionItem::initializeClass(this);
         WorldLogFileItem::initializeClass(this);
+        IoConnectionMapItem::initializeClass(this);
         SensorVisualizerItem::initializeClass(this);
         BodyTrackingCameraItem::initializeClass(this);
         BodyMarkerItem::initializeClass(this);
@@ -102,8 +112,10 @@ public:
         LinkPositionView::initializeClass(this);
         BodyLinkView::initializeClass(this);
         JointDisplacementView::initializeClass(this);
+        CoordinateFrameSetView::initializeClass(this);
         JointStateView::initializeClass(this);
         BodyStateView::initializeClass(this);
+        IoConnectionView::initializeClass(this);
         JointGraphView::initializeClass(this);
         LinkGraphView::initializeClass(this);
 

@@ -25,6 +25,7 @@ class WorldItem;
 class BodyItem;
 class ControllerItem;
 class SimulationBodyImpl;
+class SimulatorItem;
 class SimulatorItemImpl;
 class SimulatedMotionEngineManager;
 class SgCloneMap;
@@ -45,6 +46,8 @@ public:
        Call this in the initilization when the shapes are accessed after the initialization
     */
     void cloneShapesOnce();
+
+    virtual bool initialize(SimulatorItem* simulatorItem, BodyItem* bodyItem);
 
     /**
        Called from the simulation loop thread
@@ -197,6 +200,8 @@ protected:
     virtual void onPositionChanged() override;
     virtual void onDisconnectedFromRoot() override;
 
+    virtual void clearSimulation();
+
     /**
        @note orgBody should not owned by the SimulationBody instance.
        Instead of it, a clone instance which may be a sub Body class should be created and owned.
@@ -244,9 +249,10 @@ protected:
 #endif
             
 private:
-            
     SimulatorItemImpl* impl;
+
     friend class SimulatorItemImpl;
+    friend class SimulationBodyImpl;
     friend class SimulatedMotionEngineManager;
 };
         
