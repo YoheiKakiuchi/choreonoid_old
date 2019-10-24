@@ -8,7 +8,7 @@
 #include "KinematicsBar.h"
 #include "EditableSceneBody.h"
 #include "LinkSelectionView.h"
-#include "CoordinateFrameSetPairItem.h"
+#include "LinkKinematicsKitManager.h"
 #include <cnoid/LeggedBodyHelper>
 #include <cnoid/YAMLReader>
 #include <cnoid/EigenArchive>
@@ -91,6 +91,7 @@ public:
     LinkPtr currentBaseLink;
     LinkTraverse fkTraverse;
     shared_ptr<PinDragIK> pinDragIK;
+    unique_ptr<LinkKinematicsKitManager> linkKinematicsKitManager;
 
     bool isEditable;
     bool isCallingSlotsOnKinematicStateEdited;
@@ -132,8 +133,10 @@ public:
     void appendKinematicStateToHistory();
     bool undoKinematicState();
     bool redoKinematicState();
-    void getCurrentIK(Link* targetLink, shared_ptr<InverseKinematics>& ik);
-    void getDefaultIK(Link* targetLink, shared_ptr<InverseKinematics>& ik);
+    LinkKinematicsKitManager* getOrCreateLinkKinematicsKitManager();
+    LinkKinematicsKit* getLinkKinematicsKit(Link* baseLink, Link* endLink);
+    std::shared_ptr<InverseKinematics> getCurrentIK(Link* targetLink);
+    std::shared_ptr<InverseKinematics> getDefaultIK(Link* targetLink);
     void createPenetrationBlocker(Link* link, bool excludeSelfCollisions, shared_ptr<PenetrationBlocker>& blocker);
     void setPresetPose(BodyItem::PresetPoseID id);
     bool doLegIkToMoveCm(const Vector3& c, bool onlyProjectionToFloor);
@@ -637,28 +640,44 @@ bool BodyItemImpl::redoKinematicState()
 }
 
 
-CoordinateFrameSetPair* BodyItem::getCoordinateFrameSetPair() const
+LinkKinematicsKitManager* BodyItemImpl::getOrCreateLinkKinematicsKitManager()
 {
-    ItemList<CoordinateFrameSetPairItem> lowerItems;
-    if(lowerItems.extractSubTreeItems(this)){
-        return lowerItems.toSingle()->frameSetPair();
+    if(!linkKinematicsKitManager){
+        linkKinematicsKitManager.reset(new LinkKinematicsKitManager(self));
+        self->sceneBody()->addChild(linkKinematicsKitManager->scene(), true);
     }
-    auto upperItem = parentItem();
-    while(upperItem){
-        if(auto frameSetPairItem = dynamic_cast<CoordinateFrameSetPairItem*>(upperItem)){
-            return frameSetPairItem->frameSetPair();
-        }
-        if(auto worldItem = dynamic_cast<WorldItem*>(upperItem)){
-            ItemList<CoordinateFrameSetPairItem> lowerItems;
-            if(lowerItems.extractSubTreeItems(worldItem)){
-                return lowerItems.toSingle()->frameSetPair();
+    return linkKinematicsKitManager.get();
+}
+
+
+LinkKinematicsKit* BodyItem::getLinkKinematicsKit(Link* targetLink, Link* baseLink)
+{
+    return impl->getLinkKinematicsKit(targetLink, baseLink);
+}
+
+
+LinkKinematicsKit* BodyItemImpl::getLinkKinematicsKit(Link* targetLink, Link* baseLink)
+{
+    LinkKinematicsKit* kit = nullptr;
+
+    if(!targetLink){
+        targetLink = body->findUniqueEndLink();
+    }
+    if(targetLink){
+        getOrCreateLinkKinematicsKitManager();
+        if(baseLink){
+            kit = linkKinematicsKitManager->getOrCreateKinematicsKit(targetLink, baseLink);
+        } else {
+            if(auto ik = getCurrentIK(targetLink)){
+                kit = linkKinematicsKitManager->getOrCreateKinematicsKit(targetLink, ik);
             }
         }
     }
-    return nullptr;
+
+    return kit;
 }
         
-
+        
 std::shared_ptr<PinDragIK> BodyItem::pinDragIK()
 {
     if(!impl->pinDragIK){
@@ -670,14 +689,14 @@ std::shared_ptr<PinDragIK> BodyItem::pinDragIK()
 
 std::shared_ptr<InverseKinematics> BodyItem::getCurrentIK(Link* targetLink)
 {
-    shared_ptr<InverseKinematics> ik;
-    impl->getCurrentIK(targetLink, ik);
-    return ik;
+    return impl->getCurrentIK(targetLink);
 }
 
 
-void BodyItemImpl::getCurrentIK(Link* targetLink, shared_ptr<InverseKinematics>& ik)
+std::shared_ptr<InverseKinematics> BodyItemImpl::getCurrentIK(Link* targetLink)
 {
+    std::shared_ptr<InverseKinematics> ik;
+    
     auto rootLink = body->rootLink();
     
     if(bodyAttachment && targetLink == rootLink){
@@ -686,7 +705,7 @@ void BodyItemImpl::getCurrentIK(Link* targetLink, shared_ptr<InverseKinematics>&
 
     if(!ik){
         if(KinematicsBar::instance()->mode() == KinematicsBar::AUTO_MODE){
-            getDefaultIK(targetLink, ik);
+            ik = getDefaultIK(targetLink);
         }
     }
 
@@ -703,19 +722,21 @@ void BodyItemImpl::getCurrentIK(Link* targetLink, shared_ptr<InverseKinematics>&
         auto baseLink = currentBaseLink ? currentBaseLink.get() : rootLink;
         ik = JointPath::getCustomPath(body, baseLink, targetLink);
     }
+
+    return ik;
 }
 
 
 std::shared_ptr<InverseKinematics> BodyItem::getDefaultIK(Link* targetLink)
 {
-    shared_ptr<InverseKinematics> ik;
-    impl->getDefaultIK(targetLink, ik);
-    return ik;
+    return impl->getDefaultIK(targetLink);
 }
 
 
-void BodyItemImpl::getDefaultIK(Link* targetLink, shared_ptr<InverseKinematics>& ik)
+std::shared_ptr<InverseKinematics> BodyItemImpl::getDefaultIK(Link* targetLink)
 {
+    std::shared_ptr<InverseKinematics> ik;
+
     const Mapping& setupMap = *body->info()->findMapping("defaultIKsetup");
 
     if(targetLink && setupMap.isValid()){
@@ -741,6 +762,8 @@ void BodyItemImpl::getDefaultIK(Link* targetLink, shared_ptr<InverseKinematics>&
             }
         }
     }
+
+    return ik;
 }
 
 
@@ -1232,6 +1255,24 @@ bool BodyItemImpl::onEditableChanged(bool on)
 }
 
 
+BodyItem* BodyItem::parentBodyItem()
+{
+    if(impl->bodyAttachment){
+        return impl->bodyAttachment->holderBodyItem;
+    }
+    return nullptr;
+}
+
+
+Link* BodyItem::parentLink()
+{
+    if(impl->bodyAttachment){
+        return impl->bodyAttachment->attachment->holder()->link();
+    }
+    return nullptr;
+}
+
+
 void BodyItemImpl::tryToAttachToBodyItem(BodyItem* bodyItem)
 {
     bool attached = false;
@@ -1260,6 +1301,9 @@ bool BodyItemImpl::attachToBodyItem
     if(holder->attachment()){
         return false;
     }
+
+    body->setParent(holder->link());
+    
     holder->setAttachment(attachment);
     holder->on(true);
     attachment->setHolder(holder);
@@ -1298,6 +1342,7 @@ void BodyItemImpl::clearBodyAttachment()
         }
         attachment->setHolder(nullptr);
         attachment->on(false);
+        body->resetParent();
 
         bodyAttachment.reset();
     }
@@ -1398,8 +1443,35 @@ bool BodyItemImpl::store(Archive& archive)
     /// \todo Improve the following for current / initial position representations
     write(archive, "rootPosition", body->rootLink()->p());
     write(archive, "rootAttitude", Matrix3(body->rootLink()->R()));
-    Listing* qs = archive.createFlowStyleListing("jointPositions");
+
+    Listing* qs;
+    
+    // New format uses degree
     int n = body->numAllJoints();
+    if(n > 0){
+        bool doWriteInitialJointDisplacements = false;
+        BodyState::Data& initialJointDisplacements = initialState.data(BodyState::JOINT_POSITIONS);
+        qs = archive.createFlowStyleListing("jointDisplacements");
+        for(int i=0; i < n; ++i){
+            double q = body->joint(i)->q();
+            qs->append(degree(q), 10, n);
+            if(!doWriteInitialJointDisplacements){
+                if(i < initialJointDisplacements.size() && q != initialJointDisplacements[i]){
+                    doWriteInitialJointDisplacements = true;
+                }
+            }
+        }
+        if(doWriteInitialJointDisplacements){
+            qs = archive.createFlowStyleListing("initialJointDisplacements");
+            for(size_t i=0; i < initialJointDisplacements.size(); ++i){
+                qs->append(degree(initialJointDisplacements[i]), 10, n);
+            }
+        }
+    }
+
+    // Old format. Remove this after version 1.8 is released.
+    qs = archive.createFlowStyleListing("jointPositions");
+    n = body->numAllJoints();
     for(int i=0; i < n; ++i){
         qs->append(body->joint(i)->q(), 10, n);
     }
@@ -1410,6 +1482,8 @@ bool BodyItemImpl::store(Archive& archive)
         write(archive, "initialRootPosition", initialRootPosition.translation());
         write(archive, "initialRootAttitude", Matrix3(initialRootPosition.rotation()));
     }
+
+    // Old format. Remove this after version 1.8 is released.
     BodyState::Data& initialJointPositions = initialState.data(BodyState::JOINT_POSITIONS);
     if(!initialJointPositions.empty()){
         qs = archive.createFlowStyleListing("initialJointPositions");
@@ -1427,6 +1501,13 @@ bool BodyItemImpl::store(Archive& archive)
     archive.write("collisionDetection", isCollisionDetectionEnabled);
     archive.write("selfCollisionDetection", isSelfCollisionDetectionEnabled);
     archive.write("isEditable", isEditable);
+
+    if(linkKinematicsKitManager){
+        MappingPtr kinematicsNode = new Mapping;
+        if(linkKinematicsKitManager->storeState(*kinematicsNode) && !kinematicsNode->empty()){
+            archive.insert("linkKinematics", kinematicsNode);
+        }
+    }
 
     return true;
 }
@@ -1453,21 +1534,6 @@ bool BodyItemImpl::restore(const Archive& archive)
     if(read(archive, "rootAttitude", R)){
         body->rootLink()->R() = R;
     }
-    Listing* qs = archive.findListing("jointPositions");
-    if(qs->isValid()){
-        int nj = body->numAllJoints();
-        if(qs->size() != nj){
-            if(qs->size() != body->numJoints()){
-                MessageView::instance()->putln(
-                    format(_("Mismatched size of the stored joint positions for {}"), self->name()),
-                    MessageView::WARNING);
-            }
-            nj = std::min(qs->size(), nj);
-        }
-        for(int i=0; i < nj; ++i){
-            body->joint(i)->q() = (*qs)[i].toDouble();
-        }
-    }
 
     //! \todo replace the following code with the ValueTree serialization function of BodyState
     initialState.clear();
@@ -1475,26 +1541,64 @@ bool BodyItemImpl::restore(const Archive& archive)
     read(archive, "initialRootPosition", p);
     read(archive, "initialRootAttitude", R);
     initialState.setRootLinkPosition(SE3(p, R));
-    
-    qs = archive.findListing("initialJointPositions");
+
+    Listing* qs;
+    bool useNewJointDisplacementFormat = false;
+
+    qs = archive.findListing("jointDisplacements");
+    Listing* qs_initial = archive.findListing("initialJointDisplacements");
     if(qs->isValid()){
-        BodyState::Data& q = initialState.data(BodyState::JOINT_POSITIONS);
-        int n = body->numAllJoints();
-        int m = qs->size();
-        if(m != n){
-            if(m != body->numJoints()){
-                MessageView::instance()->putln(
-                    format(_("Mismatched size of the stored initial joint positions for {}"), self->name()),
-                    MessageView::WARNING);
+        useNewJointDisplacementFormat = true;
+        int nj = std::min(qs->size(), body->numAllJoints());
+        BodyState::Data& q_initial = initialState.data(BodyState::JOINT_POSITIONS);
+        q_initial.resize(nj);
+        for(int i=0; i < nj; ++i){
+            double q = radian((*qs)[i].toDouble());
+            body->joint(i)->q() = q;
+            if(qs_initial->isValid() && i < qs_initial->size()){
+                q_initial[i] = radian((*qs_initial)[i].toDouble());
+            } else {
+                q_initial[i] = q;
             }
-            m = std::min(m, n);
         }
-        q.resize(n);
-        for(int i=0; i < m; ++i){
-            q[i] = (*qs)[i].toDouble();
+    }
+
+    if(!useNewJointDisplacementFormat){
+        qs = archive.findListing("jointPositions");
+        if(qs->isValid()){
+            int nj = body->numAllJoints();
+            if(qs->size() != nj){
+                if(qs->size() != body->numJoints()){
+                    MessageView::instance()->putln(
+                        format(_("Mismatched size of the stored joint positions for {}"), self->name()),
+                        MessageView::WARNING);
+                }
+                nj = std::min(qs->size(), nj);
+            }
+            for(int i=0; i < nj; ++i){
+                body->joint(i)->q() = (*qs)[i].toDouble();
+            }
         }
-        for(int i=m; i < n; ++i){
-            q[i] = body->joint(i)->q();
+        qs = archive.findListing("initialJointPositions");
+        if(qs->isValid()){
+            BodyState::Data& q = initialState.data(BodyState::JOINT_POSITIONS);
+            int n = body->numAllJoints();
+            int m = qs->size();
+            if(m != n){
+                if(m != body->numJoints()){
+                    MessageView::instance()->putln(
+                        format(_("Mismatched size of the stored initial joint positions for {}"), self->name()),
+                        MessageView::WARNING);
+                }
+                m = std::min(m, n);
+            }
+            q.resize(n);
+            for(int i=0; i < m; ++i){
+                q[i] = (*qs)[i].toDouble();
+            }
+            for(int i=m; i < n; ++i){
+                q[i] = body->joint(i)->q();
+            }
         }
     }
 
@@ -1517,6 +1621,11 @@ bool BodyItemImpl::restore(const Archive& archive)
     }
 
     archive.read("isEditable", isEditable);
+
+    auto kinematicsNode = archive.findMapping("linkKinematics");
+    if(kinematicsNode->isValid()){
+        getOrCreateLinkKinematicsKitManager()->restoreState(*kinematicsNode);
+    }
 
     self->notifyKinematicStateChange();
 

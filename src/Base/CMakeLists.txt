@@ -26,6 +26,7 @@ set(sources
   ItemPropertyView.cpp
   TargetItemPicker.cpp
   StringListComboBox.cpp
+  PositionEditManager.cpp
   MultiSeqItemCreationPanel.cpp
   ToolBar.cpp
   TimeBar.cpp
@@ -70,6 +71,8 @@ set(sources
   MultiSE3SeqItem.cpp
   MultiSE3MatrixSeqItem.cpp
   Vector3SeqItem.cpp
+  CoordinateFrameListItem.cpp
+  MultiCoordinateFrameListItem.cpp
   ExtCommandItem.cpp
   AbstractTextItem.cpp
   ScriptItem.cpp
@@ -106,6 +109,7 @@ set(sources
   GeneralSliderView.cpp
   ImageView.cpp
   TextEdit.cpp
+  CoordinateFrameListView.cpp
   TaskView.cpp
   VirtualJoystickView.cpp
   MessageLogItem.cpp
@@ -167,6 +171,7 @@ set(headers
   ItemList.h
   Item.h
   TargetItemPicker.h
+  PositionEditManager.h
   PutPropertyFunction.h
   RootItem.h
   FolderItem.h
@@ -177,6 +182,8 @@ set(headers
   MultiSE3SeqItem.h
   MultiSE3MatrixSeqItem.h
   Vector3SeqItem.h
+  CoordinateFrameListItem.h
+  MultiCoordinateFrameListItem.h
   ExtCommandItem.h
   AbstractTextItem.h
   ScriptItem.h
@@ -252,6 +259,7 @@ set(qtheaders
   InfoBar.h
   StringListComboBox.h
   TextEdit.h
+  CoordinateFrameListView.h
   )
 
 QT5_ADD_RESOURCES(RC_SRCS Base.qrc)

@@ -12,16 +12,19 @@ class View;
 class CNOID_EXPORT TargetItemPickerBase
 {
 public:
-    TargetItemPickerBase(View* view);
+    TargetItemPickerBase(View* view = nullptr);
     ~TargetItemPickerBase();
 
+    void clearTargetItem();
     void storeTargetItem(Archive& archive, const std::string& key);
+    void restoreTargetItem(const Archive& archive, const std::string& key);
     void restoreTargetItemLater(const Archive& archive, const std::string& key);
 
 protected:
     Item* getTargetItem();
-    virtual void extractTargetItemCandidates(ItemList<>& io_items) = 0;
-    virtual void onTargetItemChanged(Item* item) = 0;
+    virtual void extractTargetItemCandidates(ItemList<>& io_items, bool selectionChanged) = 0;
+    virtual void onTargetItemSpecified(Item* item, bool isChanged) = 0;
+    virtual void onDeactivated() = 0;
 
 private:
 class Impl;
@@ -35,18 +38,24 @@ class TargetItemPicker : public TargetItemPickerBase
 public:
     typedef ref_ptr<ItemType> ItemTypePtr;
     
-    TargetItemPicker(View* view)
-        : TargetItemPickerBase(view)
-    { }
+    TargetItemPicker() : TargetItemPickerBase() { }
+    TargetItemPicker(View* view) : TargetItemPickerBase(view) { }
 
     ItemType* currentItem(){ return static_cast<ItemType*>(getTargetItem()); }
+    const ItemList<ItemType>& selectedItems(){ return selectedItems_; }
 
+    SignalProxy<void(ItemType* targetItem)> sigTargetItemSpecified(){
+        return sigTargetItemSpecified_;
+    }
     SignalProxy<void(ItemType* targetItem)> sigTargetItemChanged(){
         return sigTargetItemChanged_;
     }
+    SignalProxy<void(const ItemList<ItemType>& selected)> sigSelectedItemsChanged(){
+        return sigSelectedItemsChanged_;
+    }
 
 protected:
-    virtual void extractTargetItemCandidates(ItemList<>& io_items) override
+    virtual void extractTargetItemCandidates(ItemList<>& io_items, bool selectionChanged) override
     {
         auto iter = io_items.begin();
         while(iter != io_items.end()){
@@ -56,15 +65,31 @@ protected:
                 ++iter;
             }
         }
+        if(selectionChanged){
+            selectedItems_ = io_items;
+            sigSelectedItemsChanged_(selectedItems_);
+        }
     }
 
-    virtual void onTargetItemChanged(Item* item) override
+    virtual void onTargetItemSpecified(Item* item, bool isChanged) override
     {
-        sigTargetItemChanged_(static_cast<ItemType*>(item));
+        auto targetItem = static_cast<ItemType*>(item);
+        sigTargetItemSpecified_(targetItem);
+        if(isChanged){
+           sigTargetItemChanged_(targetItem);
+        }
+    }
+
+    virtual void onDeactivated() override
+    {
+        selectedItems_.clear();
     }
 
 private:
+    Signal<void(ItemType* targetItem)> sigTargetItemSpecified_;
     Signal<void(ItemType* targetItem)> sigTargetItemChanged_;
+    Signal<void(const ItemList<ItemType>& selected)> sigSelectedItemsChanged_;
+    ItemList<ItemType> selectedItems_;
 };
 
 }

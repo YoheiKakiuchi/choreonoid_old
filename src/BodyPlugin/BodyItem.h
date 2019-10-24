@@ -16,11 +16,8 @@
 namespace cnoid {
 
 class BodyState;
-class BodyItem;
-typedef ref_ptr<BodyItem> BodyItemPtr;
 class BodyItemImpl;
-class CoordinateFrameSetPair;
-typedef ref_ptr<CoordinateFrameSetPair> CoordinateFrameSetPairPtr;
+class LinkKinematicsKit;
 class InverseKinematics;
 class PinDragIK;
 class PenetrationBlocker;
@@ -41,6 +38,10 @@ public:
     virtual void setName(const std::string& name) override;
     bool isEditable() const;
     void setEditable(bool on);
+
+    // API for a composite body
+    BodyItem* parentBodyItem();
+    Link* parentLink();
         
     void moveToOrigin();
     enum PresetPoseID { INITIAL_POSE, STANDARD_POSE };
@@ -70,7 +71,7 @@ public:
     bool undoKinematicState();
     bool redoKinematicState();
 
-    CoordinateFrameSetPair* getCoordinateFrameSetPair() const;
+    LinkKinematicsKit* getLinkKinematicsKit(Link* targetLink = nullptr, Link* baseLink = nullptr);
 
     std::shared_ptr<PinDragIK> pinDragIK();
     std::shared_ptr<InverseKinematics> getCurrentIK(Link* targetLink);
@@ -153,6 +154,8 @@ private:
     std::vector<std::vector<CollisionLinkPairPtr>> collisionsOfLink_;
     Signal<void()> sigCollisionsUpdated_;
 };
+
+typedef ref_ptr<BodyItem> BodyItemPtr;
 
 }
 

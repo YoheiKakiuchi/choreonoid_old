@@ -7,9 +7,10 @@
 set(sources
   BodyPlugin.cpp
   WorldItem.cpp
-  CoordinateFrameSetPairItem.cpp
-  CoordinateFrameSetItem.cpp
+  BodySelectionManager.cpp
   BodyItem.cpp
+  LinkCoordinateFrameListSetItem.cpp
+  LinkKinematicsKitManager.cpp
   SimulatorItem.cpp
   SubSimulatorItem.cpp
   ControllerItem.cpp
@@ -36,18 +37,17 @@ set(sources
   LeggedBodyBar.cpp
   KinematicsBar.cpp
   SimulationBar.cpp
+  PositionView.cpp
   LinkTreeWidget.cpp
   LinkSelectionView.cpp
   LinkPropertyView.cpp
-  LinkPositionView.cpp
-  BodyLinkView.cpp
   JointDisplacementView.cpp
-  CoordinateFrameSetView.cpp
   JointStateView.cpp
   BodyStateView.cpp
   IoConnectionView.cpp
   JointGraphView.cpp
   LinkGraphView.cpp
+  BodyLinkView.cpp
   HrpsysFileIO.cpp
   CollisionSeq.cpp
   CollisionSeqItem.cpp
@@ -56,9 +56,10 @@ set(sources
 
 set(headers
   WorldItem.h
+  BodySelectionManager.h
   BodyItem.h
-  CoordinateFrameSetPairItem.h
-  CoordinateFrameSetItem.h
+  LinkCoordinateFrameListSetItem.h
+  LinkKinematicsKitManager.h
   SimulatorItem.h
   SubSimulatorItem.h
   ControllerItem.h
@@ -79,6 +80,7 @@ set(headers
   BodyBar.h
   KinematicsBar.h
   SimulationBar.h
+  PositionView.h
   LinkTreeWidget.h
   LinkSelectionView.h
   EditableSceneBody.h
