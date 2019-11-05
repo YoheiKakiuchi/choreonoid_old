@@ -38,6 +38,7 @@ public:
     
     VariableListModel(QObject* parent);
     void setVariableList(ManipulatorVariableList* variables);
+    void refresh();
     bool isValid() const;
     int numVariables() const;
     ManipulatorVariable* variableAtRow(int row);
@@ -122,6 +123,7 @@ public:
     TargetItemPicker<ManipulatorVariableListItemBase> targetItemPicker;
     ManipulatorVariableListItemBasePtr targetItem;
     ManipulatorVariableListPtr variables;
+    ScopedConnection variableUpdateConnection;
     VariableListModel* variableListModel;
     QLabel targetLabel;
     PushButton addButton;
@@ -156,6 +158,13 @@ void VariableListModel::setVariableList(ManipulatorVariableList* variables)
     this->variables = variables;
     endResetModel();
 }
+
+
+void VariableListModel::refresh()
+{
+    beginResetModel();
+    endResetModel();
+}    
 
 
 bool VariableListModel::isValid() const
@@ -305,7 +314,6 @@ bool VariableListModel::setData(const QModelIndex& index, const QVariant& value,
         int column = index.column();
 
         if(column == IdColumn){
-            bool changed = false;
             bool ok;
             GeneralId newId = value.toInt(&ok);
             if(!ok){
@@ -560,15 +568,15 @@ ManipulatorVariableListViewBase::Impl::Impl(ManipulatorVariableListViewBase* sel
     hbox->addWidget(&addButton);
     hbox->addStretch();
 
-    /*
     optionMenuManager.setNewPopupMenu(this);
-    optionMenuManager.addItem(_("option 1"))
+    optionMenuManager.addItem(_("refresh"))
+        ->sigTriggered().connect([&](){ variableListModel->refresh(); });
     
     optionMenuButton.setText(_("*"));
     optionMenuButton.sigClicked().connect([&](){ onOptionMenuClicked(); });
     hbox->addWidget(&optionMenuButton);
+
     vbox->addLayout(hbox);
-    */
     
     // Setup the table
     auto hframe = new QFrame;
@@ -618,11 +626,17 @@ ManipulatorVariableListViewBase::~ManipulatorVariableListViewBase()
 void ManipulatorVariableListViewBase::Impl::setManipulatorVariableListItem(ManipulatorVariableListItemBase* item)
 {
     targetItem = item;
+    variableUpdateConnection.disconnect();
 
     if(item){
         targetLabel.setText(item->name().c_str());
         variables = item->variableList();
         variableListModel->setVariableList(variables);
+
+        variableUpdateConnection =
+            variables->sigVariableUpdated().connect(
+                [&](ManipulatorVariableSet*, ManipulatorVariable* variable){
+                    variableListModel->notifyVariableUpdate(variable); });
     } else {
         targetLabel.setText("---");
         variables = nullptr;

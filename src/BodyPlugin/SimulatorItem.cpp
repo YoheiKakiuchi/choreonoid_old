@@ -29,6 +29,7 @@
 #include <cnoid/ConnectionSet>
 #include <cnoid/FloatingNumberString>
 #include <cnoid/SceneGraph>
+#include <cnoid/CloneMap>
 #include <QThread>
 #include <QMutex>
 #include <QElapsedTimer>
@@ -279,7 +280,7 @@ public:
 
     Connection aboutToQuitConnection;
 
-    SgCloneMap sgCloneMap;
+    CloneMap cloneMap;
         
     ItemTreeView* itemTreeView;
 
@@ -672,7 +673,7 @@ void SimulationBody::cloneShapesOnce()
         if(!impl->simImpl){
             // throw exception
         }
-        impl->body_->cloneShapes(impl->simImpl->sgCloneMap);
+        impl->body_->cloneShapes(impl->simImpl->cloneMap);
         impl->areShapesCloned = true;
     }
 }
@@ -1472,6 +1473,18 @@ void SimulatorItem::clearSimulation()
 }
 
 
+SimulationBody* SimulatorItem::createSimulationBody(Body* orgBody, CloneMap& cloneMap)
+{
+    return nullptr;
+}
+
+
+SimulationBody* SimulatorItem::createSimulationBody(Body* orgBody)
+{
+    return nullptr;
+}
+
+
 bool SimulatorItem::startSimulation(bool doReset)
 {
     return impl->startSimulation(doReset);
@@ -1497,7 +1510,7 @@ bool SimulatorItemImpl::startSimulation(bool doReset)
         return false;
     }
 
-    sgCloneMap.clear();
+    cloneMap.clear();
 
     currentFrame = 0;
     worldTimeStep_ = self->worldTimeStep();
@@ -1520,16 +1533,26 @@ bool SimulatorItemImpl::startSimulation(bool doReset)
             if(doReset){
                 bodyItem->restoreInitialState(false);
             }
-            SimulationBodyPtr simBody = self->createSimulationBody(bodyItem->body());
-            if(simBody->body()){
-                if(simBody->initialize(self, bodyItem)){
+            auto orgBody = bodyItem->body();
+            SimulationBodyPtr simBody = self->createSimulationBody(orgBody, cloneMap);
+            if(!simBody){
+                // Old API
+                simBody = self->createSimulationBody(orgBody);
+            }
 
-                    // copy the body state overwritten by the controller
-                    simBody->impl->copyStateToBodyItem();
+            if(!simBody){
+                mv->putln(format(_("The clone of {0} for the simulation cannot be created."), orgBody->name()),
+                          MessageView::WARNING);
+            } else {
+                if(simBody->body()){
+                    if(simBody->initialize(self, bodyItem)){
+                        // copy the body state overwritten by the controller
+                        simBody->impl->copyStateToBodyItem();
                         
-                    allSimBodies.push_back(simBody);
-                    simBodiesWithBody.push_back(simBody);
-                    simBodyMap[bodyItem] = simBody;
+                        allSimBodies.push_back(simBody);
+                        simBodiesWithBody.push_back(simBody);
+                        simBodyMap[bodyItem] = simBody;
+                    }
                 }
             }
             bodyItem->notifyKinematicStateChange();
@@ -1574,6 +1597,8 @@ bool SimulatorItemImpl::startSimulation(bool doReset)
     extForceFunctionId = stdx::nullopt;
     virtualElasticStringFunctionId = stdx::nullopt;
 
+    cloneMap.replacePendingObjects();
+    
     bool result = self->initializeSimulation(simBodiesWithBody);
 
     if(result){
@@ -1748,9 +1773,9 @@ bool SimulatorItemImpl::startSimulation(bool doReset)
 }
 
 
-SgCloneMap& SimulatorItem::sgCloneMap()
+CloneMap& SimulatorItem::cloneMap()
 {
-    return impl->sgCloneMap;
+    return impl->cloneMap;
 }
 
 
@@ -2293,8 +2318,11 @@ void SimulatorItemImpl::onSimulationLoopStopped()
     }
 
     mv->notify(format(_("Simulation by {0} has finished at {1} [s]."), self->name(), finishTime));
-    mv->putln(format(_("Computation time is {0} [s], computation time / simulation time = {1}."),
-                     actualSimulationTime, (actualSimulationTime / finishTime)));
+
+    if(finishTime > 0.0){
+        mv->putln(format(_("Computation time is {0} [s], computation time / simulation time = {1}."),
+                         actualSimulationTime, (actualSimulationTime / finishTime)));
+    }
 
     clearSimulation();
 

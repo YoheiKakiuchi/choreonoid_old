@@ -20,6 +20,7 @@ public:
     unordered_map<GeneralId, ManipulatorVariablePtr, GeneralId::Hash> idToVariableMap;
     int idCounter;
     bool isStringIdEnabled;
+    Signal<void(ManipulatorVariableSet* variableSet, ManipulatorVariable* variable)> sigVariableUpdated;
     
     Impl();
     Impl(const Impl& org);
@@ -104,7 +105,7 @@ bool ManipulatorVariableList::isStringIdEnabled() const
 void ManipulatorVariableList::clear()
 {
     for(auto& variable : impl->variables){
-        setManipulatorVariableOwner(variable, nullptr);
+        variable->owner_.reset();
     }
     impl->variables.clear();
     impl->idToVariableMap.clear();
@@ -193,7 +194,7 @@ std::vector<ManipulatorVariablePtr> ManipulatorVariableList::getFindableVariable
 }
 
 
-bool ManipulatorVariableList::contains(const ManipulatorVariableSet* variableSet) const
+bool ManipulatorVariableList::containsVariableSet(const ManipulatorVariableSet* variableSet) const
 {
     return (variableSet == this);
 }
@@ -201,13 +202,15 @@ bool ManipulatorVariableList::contains(const ManipulatorVariableSet* variableSet
 
 bool ManipulatorVariableList::insert(int index, ManipulatorVariable* variable)
 {
-    if(variable->ownerVariableSet() || !variable->id().isValid() ||
-       (!impl->isStringIdEnabled && variable->id().isString()) ||
-       ManipulatorVariableList::findVariable(variable->id())){
+    auto& id = variable->id();
+
+    if(variable->owner() || !id.isValid() ||
+       (!impl->isStringIdEnabled && id.isString()) ||
+       ManipulatorVariableList::findVariable(id)){
         return false;
     }
 
-    setManipulatorVariableOwner(variable, this);
+    variable->owner_ = this;
     impl->idToVariableMap[variable->id()] = variable;
     if(index > numVariables()){
         index = numVariables();
@@ -230,7 +233,7 @@ void ManipulatorVariableList::removeAt(int index)
         return;
     }
     auto variable_ = impl->variables[index];
-    setManipulatorVariableOwner(variable_, nullptr);
+    variable_->owner_.reset();
     impl->idToVariableMap.erase(variable_->id());
     impl->variables.erase(impl->variables.begin() + index);
 }
@@ -240,14 +243,14 @@ bool ManipulatorVariableList::resetId(ManipulatorVariable* variable, const Gener
 {
     bool changed = false;
 
-    if(variable->ownerVariableSet() == this && newId.isValid() &&
+    if(variable->owner() == this && newId.isValid() &&
        (impl->isStringIdEnabled || newId.isInt())){
 
         auto& variableMap = impl->idToVariableMap;
         auto iter = variableMap.find(newId);
         if(iter == variableMap.end()){
             variableMap.erase(variable->id());
-            setManipulatorVariableId(variable, newId);
+            variable->id_ = newId;
             variableMap[newId] = variable;
             changed = true;
         }
@@ -278,6 +281,19 @@ GeneralId ManipulatorVariableList::createNextId(int prevId)
         }
     }
     return id;
+}
+
+
+SignalProxy<void(ManipulatorVariableSet* variableSet, ManipulatorVariable* variable)>
+ManipulatorVariableList::sigVariableUpdated()
+{
+    return impl->sigVariableUpdated;
+}
+    
+
+void ManipulatorVariableList::notifyVariableUpdate(ManipulatorVariable* variable)
+{
+    impl->sigVariableUpdated(this, variable);
 }
 
 

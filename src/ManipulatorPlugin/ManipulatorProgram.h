@@ -1,8 +1,8 @@
 #ifndef CNOID_MANIPULATOR_PLUGIN_MANIPULATOR_PROGRAM_H
 #define CNOID_MANIPULATOR_PLUGIN_MANIPULATOR_PROGRAM_H
 
-#include "ManipulatorStatements.h"
-#include <cnoid/Referenced>
+#include "ManipulatorStatement.h"
+#include <cnoid/CloneableReferenced>
 #include <cnoid/Signal>
 #include <string>
 #include <deque>
@@ -13,33 +13,12 @@ namespace cnoid {
 
 class Mapping;
 class ManipulatorPosition;
-class ManipulatorPositionCloneMap;
-class ManipulatorPositionSet;
+class ManipulatorPositionList;
 class ManipulatorProgram;
 class StructuredStatement;
 
-class CNOID_EXPORT ManipulatorProgramCloneMap
-{
-public:
-    ManipulatorProgramCloneMap();
-    ManipulatorProgramCloneMap(const ManipulatorProgramCloneMap& org) = delete;
-    ~ManipulatorProgramCloneMap();
-    void clear();
-    ManipulatorProgram* getClone(ManipulatorProgram* org);
-    ManipulatorPosition* getClone(ManipulatorPosition* org);
-    ManipulatorPositionCloneMap& manipulatorPositionCloneMap();
-    bool isPositionSetIncluded() const;
-    void setPositionSetIncluded(bool on);
-    
-private:
-    class Impl;
-    Impl* impl;
 
-    friend class ManipulatorProgram;
-};
-
-
-class CNOID_EXPORT ManipulatorProgram : public Referenced
+class CNOID_EXPORT ManipulatorProgram : public CloneableReferenced
 {
 public:
     typedef std::deque<ManipulatorStatementPtr> StatementContainer;
@@ -49,9 +28,13 @@ public:
     ManipulatorProgram();
     ~ManipulatorProgram();
 
-    ManipulatorProgram* clone() const { return doClone(nullptr); }
-    ManipulatorProgram* clone(ManipulatorProgramCloneMap& cloneMap) const { return doClone(&cloneMap); }
-    
+    ManipulatorProgram* clone() const {
+        return static_cast<ManipulatorProgram*>(doClone(nullptr));
+    }
+    ManipulatorProgram* clone(CloneMap& cloneMap) const {
+        return static_cast<ManipulatorProgram*>(doClone(&cloneMap));
+    }
+
     const std::string& name() const;
     void setName(const std::string& name);
 
@@ -68,25 +51,33 @@ public:
     iterator end(){ return statements_.end(); }
     const_iterator end() const { return statements_.end(); }
 
-    ManipulatorPositionSet* positions();
-    const ManipulatorPositionSet* positions() const;
+    ManipulatorPositionList* positions();
+    const ManipulatorPositionList* positions() const;
     void removeUnreferencedPositions();
-    ManipulatorPositionSet* createPositionSet() const;
 
-    SignalProxy<void(ManipulatorProgram* program, ManipulatorProgram::iterator iter)> sigStatementInserted();
+    SignalProxy<void(ManipulatorProgram::iterator iter)> sigStatementInserted();
     SignalProxy<void(ManipulatorProgram* program, ManipulatorStatement* statement)> sigStatementRemoved();
     SignalProxy<void(ManipulatorStatement* statement)> sigStatementUpdated();
     
     void notifyStatementUpdate(ManipulatorStatement* statement) const;
 
     StructuredStatement* holderStatement() const;
+    bool isSubProgram() const;
+    ManipulatorProgram* topLevelProgram() const;
+
+    void traverseAllStatements(std::function<bool(ManipulatorStatement* statement)> callback);
+
+    void renumberPositionIds();
 
     bool load(const std::string& filename, std::ostream& os);
     bool save(const std::string& filename);
 
+    bool read(const Mapping& archive);
+    bool write(Mapping& archive) const;
+
 protected:
-    ManipulatorProgram(const ManipulatorProgram& org, ManipulatorProgramCloneMap* cloneMap);
-    virtual ManipulatorProgram* doClone(ManipulatorProgramCloneMap* cloneMap) const;
+    ManipulatorProgram(const ManipulatorProgram& org, CloneMap* cloneMap);
+    virtual Referenced* doClone(CloneMap* cloneMap) const override;
 
 private:
     StatementContainer statements_;

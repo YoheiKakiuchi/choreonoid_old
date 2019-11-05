@@ -2,14 +2,15 @@
 #define CNOID_MANIPULATOR_PLUGIN_MANIPULATOR_VARIABLE_SET_H
 
 #include "ManipulatorVariable.h"
-#include <cnoid/CloneMappableReferenced>
+#include <cnoid/CloneableReferenced>
+#include <cnoid/Signal>
 #include <vector>
 #include <string>
 #include "exportdecl.h"
 
 namespace cnoid {
 
-class CNOID_EXPORT ManipulatorVariableSet : public CloneMappableReferenced
+class CNOID_EXPORT ManipulatorVariableSet : public CloneableReferenced
 {
 public:
     ManipulatorVariableSet* clone(){
@@ -34,13 +35,14 @@ public:
 
     virtual std::vector<ManipulatorVariablePtr> getFindableVariableLists() const = 0;
 
-    virtual bool contains(const ManipulatorVariableSet* variableSet) const = 0;
+    virtual bool containsVariableSet(const ManipulatorVariableSet* variableSet) const = 0;
+
+    virtual SignalProxy<void(ManipulatorVariableSet* variableSet, ManipulatorVariable* variable)>
+        sigVariableUpdated() = 0;
 
 protected:
     ManipulatorVariableSet();
     ManipulatorVariableSet(const ManipulatorVariableSet& org);
-    void setManipulatorVariableId(ManipulatorVariable* variable, const GeneralId& id);
-    void setManipulatorVariableOwner(ManipulatorVariable* variable, ManipulatorVariableSet* owner);
 
 private:
     std::string name_;

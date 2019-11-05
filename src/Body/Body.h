@@ -18,8 +18,7 @@ class Body;
 class BodyImpl;
 class BodyHandler;
 class Mapping;
-class BodyCloneMap;
-class SgCloneMap;
+class CloneMap;
 
 struct BodyInterface;
 struct BodyCustomizerInterface;
@@ -27,16 +26,16 @@ typedef void* BodyCustomizerHandle;
 
 typedef ref_ptr<Body> BodyPtr;
 
-class CNOID_EXPORT Body : public Referenced
+class CNOID_EXPORT Body : public CloneableReferenced
 {
 public:
     Body();
     Body(const Body& org) = delete;
     virtual ~Body();
 
-    void copyFrom(const Body* org, BodyCloneMap* cloneMap = nullptr);
-    Body* clone() const { return doClone(nullptr); }
-    Body* clone(BodyCloneMap& cloneMap) const { return doClone(&cloneMap); }
+    void copyFrom(const Body* org, CloneMap* cloneMap = nullptr);
+    Body* clone() const { return static_cast<Body*>(doClone(nullptr)); }
+    Body* clone(CloneMap& cloneMap) const { return static_cast<Body*>(doClone(&cloneMap)); }
 
     virtual Link* createLink(const Link* org = 0) const;
 
@@ -244,7 +243,7 @@ public:
     Mapping* info();
     void resetInfo(Mapping* info);
 
-    void cloneShapes(SgCloneMap& cloneMap);
+    void cloneShapes(CloneMap& cloneMap);
         
     template<class T> T* findCache(const std::string& name){
         return dynamic_cast<T*>(findCacheSub(name));
@@ -293,7 +292,7 @@ public:
 
 protected:
     Body(Link* rootLink);
-    virtual Body* doClone(BodyCloneMap* cloneMap) const;
+    virtual Referenced* doClone(CloneMap* cloneMap) const override;
 
 private:
     LinkTraverse linkTraverse_;
@@ -307,7 +306,7 @@ private:
     BodyImpl* impl;
 
     void initialize();
-    Link* cloneLinkTree(const Link* orgLink, BodyCloneMap* cloneMap);
+    Link* cloneLinkTree(const Link* orgLink, CloneMap* cloneMap);
     Link* createEmptyJoint(int jointId);
     Device* findDeviceSub(const std::string& name) const;
     Referenced* findCacheSub(const std::string& name);

@@ -19,16 +19,7 @@ public:
     void clear();
     int numVariables() const;
     ManipulatorVariable* variableAt(int index) const;
-    int indexOf(ManipulatorVariable* frame) const;
-
-    virtual int getNumVariables() const override;
-    virtual ManipulatorVariable* getVariableAt(int index) const override;
-    virtual ManipulatorVariable* findVariable(const GeneralId& id) const override;
-    virtual ManipulatorVariable* findOrCreateVariable(
-        const GeneralId& id, const ManipulatorVariable::Value& defaultValue) override;
-
-    virtual std::vector<ManipulatorVariablePtr> getFindableVariableLists() const override;
-    virtual bool contains(const ManipulatorVariableSet* variableSet) const override;
+    int indexOf(ManipulatorVariable* variable) const;
 
     bool insert(int index, ManipulatorVariable* variable);
     bool append(ManipulatorVariable* variable);
@@ -42,6 +33,18 @@ public:
 
     void resetIdCounter();
     GeneralId createNextId(int prevId = -1);
+
+    virtual int getNumVariables() const override;
+    virtual ManipulatorVariable* getVariableAt(int index) const override;
+    virtual ManipulatorVariable* findVariable(const GeneralId& id) const override;
+    virtual ManipulatorVariable* findOrCreateVariable(
+        const GeneralId& id, const ManipulatorVariable::Value& defaultValue) override;
+    virtual std::vector<ManipulatorVariablePtr> getFindableVariableLists() const override;
+    virtual bool containsVariableSet(const ManipulatorVariableSet* variableSet) const override;
+    virtual SignalProxy<void(ManipulatorVariableSet* variableSet, ManipulatorVariable* variable)>
+        sigVariableUpdated() override;
+    
+    void notifyVariableUpdate(ManipulatorVariable* variable);
 
     bool read(const Mapping& archive);
     bool write(Mapping& archive) const;    

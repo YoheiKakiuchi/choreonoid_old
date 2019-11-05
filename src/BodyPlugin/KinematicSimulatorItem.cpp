@@ -2,7 +2,7 @@
 #include "BodyItem.h"
 #include "WorldItem.h"
 #include "IoConnectionMapItem.h"
-#include <cnoid/BodyCloneMap>
+#include <cnoid/CloneMap>
 #include <cnoid/HolderDevice>
 #include <cnoid/AttachmentDevice>
 #include <cnoid/IoConnectionMap>
@@ -45,7 +45,6 @@ public:
     KinematicSimulatorItem* self;
     vector<HolderInfoPtr> holders;
     vector<HolderInfoPtr> activeHolders;
-    BodyCloneMap cloneMap;
     vector<IoConnectionMapPtr> ioConnectionMaps;
 
     Impl(KinematicSimulatorItem* self);
@@ -108,17 +107,15 @@ Item* KinematicSimulatorItem::doDuplicate() const
 
 void KinematicSimulatorItem::clearSimulation()
 {
-    impl->cloneMap.clear();
     impl->holders.clear();    
     impl->activeHolders.clear();    
     impl->ioConnectionMaps.clear();
 }
 
 
-SimulationBody* KinematicSimulatorItem::createSimulationBody(Body* orgBody)
+SimulationBody* KinematicSimulatorItem::createSimulationBody(Body* orgBody, CloneMap& cloneMap)
 {
-    auto body = impl->cloneMap.getClone(orgBody);
-    return new KinematicSimBody(body);
+    return new KinematicSimBody(cloneMap.getClone(orgBody));
 }
 
 
@@ -130,8 +127,6 @@ bool KinematicSimulatorItem::initializeSimulation(const std::vector<SimulationBo
 
 bool KinematicSimulatorItem::Impl::initializeSimulation(const std::vector<SimulationBody*>& simBodies)
 {
-    cloneMap.replacePendingObjects();
-
     /*
       This is a temporary implementation.
       This should be implemented in IoConnectionMapItem as functions of SubSimulatorItem.
@@ -141,7 +136,7 @@ bool KinematicSimulatorItem::Impl::initializeSimulation(const std::vector<Simula
     ItemList<IoConnectionMapItem> connectionMapItems;
     if(connectionMapItems.extractSubTreeItems(self->worldItem())){
         for(auto& item : connectionMapItems){
-            auto connectionMap = item->connectionMap()->clone(cloneMap);
+            auto connectionMap = self->cloneMap().getClone(item->connectionMap());
             connectionMap->establishConnections();
             ioConnectionMaps.push_back(connectionMap);
         }
@@ -197,7 +192,7 @@ void KinematicSimulatorItem::Impl::onHolderStateChanged(HolderInfo* info)
 {
     auto holder = info->holder;
 
-    if(!info->on_prev && holder->on()){
+    if(holder->on()){
         Position T_holder = holder->link()->T() * holder->T_local();
         info->attachedBody = findAttachableBody(holder, T_holder);
         if(info->attachedBody){
@@ -205,7 +200,7 @@ void KinematicSimulatorItem::Impl::onHolderStateChanged(HolderInfo* info)
             info->T_offset = T_holder.inverse(Eigen::Isometry) * T_attached;
             activeHolders.push_back(info);
         }
-    } else if(info->on_prev && !holder->on()){
+    } else {
         activeHolders.erase(
             std::find(activeHolders.begin(), activeHolders.end(), info));
     }

@@ -22,7 +22,6 @@ public:
 
     DyLink();
     DyLink(const Link& link);
-    virtual Link* clone() const override;
 
     virtual void initializeState() override;
 
@@ -78,6 +77,9 @@ public:
 
     virtual void prependChild(Link* link);
     virtual void appendChild(Link* link);
+
+protected:
+    virtual Referenced* doClone(CloneMap* cloneMap) const override;
         
 private:
     Vector3 vo_;  ///< translation elements of spacial velocity
@@ -119,6 +121,13 @@ class CNOID_EXPORT DyBody : public Body
 {
 public:
     DyBody();
+
+    /**
+       The copy constructor is disabled becasue a virtual function is neccessary
+       to create the instance but it cannot be called from the contructor.
+       Use the copyFrom function after the empty instance is created to create
+       the copied instance.
+    */
     DyBody(const Body& org) = delete;
 
     virtual Link* createLink(const Link* org = 0) const;
@@ -142,7 +151,7 @@ public:
     void calcSpatialForwardKinematics();
 
 protected:
-    virtual Body* doClone(BodyCloneMap* cloneMap) const override;
+    virtual Referenced* doClone(CloneMap* cloneMap) const override;
 };
 
 typedef ref_ptr<DyBody> DyBodyPtr;

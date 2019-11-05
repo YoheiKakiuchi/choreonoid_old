@@ -27,6 +27,8 @@ public:
     ManipulatorStatement* currentStatement();
     SignalProxy<void(ManipulatorStatement* statement)> sigCurrentStatementChanged();
 
+    void updateStatementTree();
+
     virtual bool storeState(Archive& archive) override;
     virtual bool restoreState(const Archive& archive) override;
 
@@ -39,7 +41,7 @@ public:
         virtual int labelSpan(ManipulatorStatement* statement, int column) const;
         virtual QVariant dataOfEditRole(ManipulatorStatement* statement, int column) const;
         virtual void setDataOfEditRole(ManipulatorStatement* statement, int column, const QVariant& value) const;
-        virtual QWidget* createEditor(ManipulatorStatement* statement, int column) const;
+        virtual QWidget* createEditor(ManipulatorStatement* statement, int column, QWidget* parent) const;
         virtual void setEditorData(ManipulatorStatement* statement, int column, QWidget* editor) const;
         virtual void setStatementData(ManipulatorStatement* statement, int column, QWidget* editor) const;
 
@@ -72,6 +74,8 @@ protected:
        This function is called when the current statemet is changed or clicked.
     */
     virtual void onCurrentStatementActivated(ManipulatorStatement* statement);
+
+    virtual void onOptionMenuRequest(MenuManager& menuManager);
 
 private:
     void registerStatementDelegate(std::type_index statementType, StatementDelegate* delegate);

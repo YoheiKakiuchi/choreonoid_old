@@ -2,6 +2,7 @@
 #define CNOID_MANIPULATOR_PLUGIN_MANIPULATOR_CONTROLLR_ITEM_BASE_H
 
 #include <cnoid/ControllerItem>
+#include "ManipulatorProgram.h"
 #include <typeindex>
 #include "exportdecl.h"
 
@@ -11,6 +12,7 @@ class ManipulatorProgramItemBase;
 class ManipulatorProgram;
 class ManipulatorStatement;
 class LinkKinematicsKit;
+class ManipulatorVariableSet;
 
 class CNOID_EXPORT ManipulatorControllerItemBase : public ControllerItem
 {
@@ -34,21 +36,28 @@ protected:
 
     void setResidentInputFunction(std::function<void()> input);
 
-    
     /**
         \note The ManipulatorProgram instance owned by the following item must not be
               used in the controller. The instance returned by the getManipulatorProgram
               function can be used instead of it.
     */
-    ManipulatorProgramItemBase* getManipulatorProgramItem();
+    ManipulatorProgramItemBase* getProgramItem();
 
     /**
        This function returns the program instance cloned by the controller
        for the purpose of control.
     */
-    ManipulatorProgram* getManipulatorProgram();
+    ManipulatorProgram* getMainProgram();
+
+    ManipulatorProgram* getCurrentProgram();
+    ManipulatorProgram::iterator getCurrentIterator();
+    void setCurrent(ManipulatorProgram::iterator iter);
+    void setCurrent(ManipulatorProgram* program, ManipulatorProgram::iterator iter);
+
+    ManipulatorProgram* findProgram(const std::string& name);
 
     LinkKinematicsKit* getLinkKinematicsKit();
+    ManipulatorVariableSet* getVariableSet();
 
     void pushControlFunctions(
         std::function<bool()> control, std::function<void()> input = nullptr, std::function<void()> output = nullptr);

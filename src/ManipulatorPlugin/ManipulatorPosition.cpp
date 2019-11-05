@@ -1,4 +1,5 @@
 #include "ManipulatorPosition.h"
+#include "ManipulatorPositionList.h"
 #include <cnoid/Body>
 #include <cnoid/LinkKinematicsKit>
 #include <cnoid/JointPath>
@@ -6,50 +7,11 @@
 #include <cnoid/CoordinateFrame>
 #include <cnoid/EigenUtil>
 #include <cnoid/EigenArchive>
-#include <fmt/format.h>
-#include <unordered_map>
-#include <regex>
+#include <cnoid/CloneMap>
 #include "gettext.h"
 
 using namespace std;
 using namespace cnoid;
-using fmt::format;
-
-namespace {
-
-typedef ManipulatorPositionSet::container_type container_type;
-typedef unordered_map<ManipulatorPositionPtr, container_type::iterator> PointerToIteratorMap;
-typedef unordered_map<string, container_type::iterator> NameToIteratorMap;
-
-}
-
-namespace cnoid {
-
-class ManipulatorPositionSet::Impl
-{
-public:
-    ManipulatorPositionSet* self;
-    PointerToIteratorMap pointerToIteratorMap;
-    NameToIteratorMap nameToIteratorMap;
-    weak_ref_ptr<ManipulatorPositionSet> weak_parentSet;
-    vector<ManipulatorPositionSetPtr> childSets;
-    int numberingCounter;
-    string numberingFormat;
-    regex numberingPattern;
-
-    Impl(ManipulatorPositionSet* self);
-    Impl(ManipulatorPositionSet* self, const Impl& org, ManipulatorPositionCloneMap& cloneMap);
-    bool append(ManipulatorPosition* position, bool doOverwrite);
-    bool remove(ManipulatorPosition* position);
-    pair<ManipulatorPositionSet*, PointerToIteratorMap::iterator> find(
-        ManipulatorPosition* position, bool traverseParent, bool traverseChildren);
-    pair<Impl*, NameToIteratorMap::iterator> find(
-        const std::string& name, bool traverseParent, bool traverseChildren);
-    bool rewriteNameToIteratorMap(const string& oldName, const string& newName);
-};
-
-}
-
 
 constexpr int ManipulatorPosition::MaxNumJoints;
 
@@ -61,39 +23,28 @@ ManipulatorPosition::ManipulatorPosition(PositionType type)
 }
 
 
-ManipulatorPosition::ManipulatorPosition(PositionType type, const std::string& name)
+ManipulatorPosition::ManipulatorPosition(PositionType type, const GeneralId& id)
     : positionType_(type),
-      name_(name)
+      id_(id)
 {
 
 }
-    
+
 
 ManipulatorPosition::ManipulatorPosition(const ManipulatorPosition& org)
     : positionType_(org.positionType_),
-      name_(org.name_)
+      id_(org.id_),
+      note_(org.note_)
 {
 
 }
 
 
-ManipulatorPosition& ManipulatorPosition::operator=(const ManipulatorPosition& rhs)
+void ManipulatorPosition::setId(const GeneralId& id)
 {
-    positionType_ = rhs.positionType_;
-    name_ = rhs.name_;
-    return *this;
-}
-
-
-bool ManipulatorPosition::setName(const std::string& name)
-{
-    if(auto owner = weak_ownerPositionSet.lock()){
-        if(!owner->impl->rewriteNameToIteratorMap(name_, name)){
-            return false;
-        }
+    if(!owner_){
+        id_ = id;
     }
-    name_ = name;
-    return true;
 }
 
 
@@ -115,72 +66,43 @@ ManipulatorFkPosition* ManipulatorPosition::fkPosition()
 }
 
 
+ManipulatorPositionList* ManipulatorPosition::owner()
+{
+    return owner_.lock();
+}
+
+
 bool ManipulatorPosition::read(const Mapping& archive)
 {
-    return setName(archive["name"].toString());
+    if(!id_.read(archive, "id")){
+        archive.throwException(_("The \"id\" key is not found in a manipulator position node"));
+    }
+    archive.read("note", note_);
+    return true;
 }
 
 
 bool ManipulatorPosition::write(Mapping& archive) const
 {
-    archive.write("name", name_);
-    return true;
-}
-
-
-ManipulatorPositionRef::ManipulatorPositionRef(const std::string& name)
-    : ManipulatorPosition(Reference, name)
-{
-
-}
-
-
-ManipulatorPositionRef::ManipulatorPositionRef(const ManipulatorPositionRef& org)
-    : ManipulatorPosition(org)
-{
-
-}
-    
-
-ManipulatorPositionRef& ManipulatorPositionRef::operator=(const ManipulatorPositionRef& rhs)
-{
-    ManipulatorPosition::operator=(rhs);
-    return *this;
-}
-
-
-ManipulatorPosition* ManipulatorPositionRef::clone() const
-{
-    return new ManipulatorPositionRef(*this);
-}
-
-
-bool ManipulatorPositionRef::setCurrentPosition(LinkKinematicsKit*)
-{
-    return false;
-}
-    
-    
-bool ManipulatorPositionRef::apply(LinkKinematicsKit*) const
-{
-    return false;
-}
-
-
-bool ManipulatorPositionRef::read(const Mapping& archive)
-{
-    return false;
-}
-
-
-bool ManipulatorPositionRef::write(Mapping& archive) const
-{
+    if(id_.write(archive, "id")){
+        if(!note_.empty()){
+            archive.write("note", note_, DOUBLE_QUOTED);
+        }
+        return true;
+    }
     return false;
 }
 
 
 ManipulatorIkPosition::ManipulatorIkPosition()
-    : ManipulatorPosition(IK),
+    : ManipulatorIkPosition(GeneralId())
+{
+
+}
+
+
+ManipulatorIkPosition::ManipulatorIkPosition(const GeneralId& id)
+    : ManipulatorPosition(IK, id),
       baseFrameId_(0),
       toolFrameId_(0)
 {
@@ -204,24 +126,9 @@ ManipulatorIkPosition::ManipulatorIkPosition(const ManipulatorIkPosition& org)
 {
 
 }
-    
-    
-ManipulatorIkPosition& ManipulatorIkPosition::operator=(const ManipulatorIkPosition& rhs)
-{
-    setName(rhs.name());
-    T = rhs.T;
-    referenceRpy_ = rhs.referenceRpy_;
-    baseFrameId_ = rhs.baseFrameId_;
-    toolFrameId_ = rhs.toolFrameId_;
-    baseFrameType_ = rhs.baseFrameType_;
-    configuration_ = rhs.configuration_;
-    phase_ = rhs.phase_;
 
-    return *this;
-}
-    
 
-ManipulatorPosition* ManipulatorIkPosition::clone() const
+Referenced* ManipulatorIkPosition::doClone(CloneMap*) const
 {
     return new ManipulatorIkPosition(*this);
 }
@@ -290,6 +197,7 @@ bool ManipulatorIkPosition::setCurrentPosition_(LinkKinematicsKit* kinematicsKit
         T_base = baseLink->Ta() * baseFrame->T();
     }
 
+    toolFrameId_ = kinematicsKit->currentEndFrameId();
     auto endFrame = kinematicsKit->currentEndFrame();
     Position T_end = kinematicsKit->link()->Ta() * endFrame->T();
 
@@ -393,6 +301,8 @@ bool ManipulatorIkPosition::write(Mapping& archive) const
     
     ManipulatorPosition::write(archive);
     
+    archive.setDoubleFormat("%.9g");
+
     cnoid::write(archive, "translation", Vector3(T.translation()));
     cnoid::write(archive, "rotation", degree(rpy()));
 
@@ -410,33 +320,37 @@ bool ManipulatorIkPosition::write(Mapping& archive) const
     for(auto& phase : phase_){
         phaseNodes.append(phase);
     }
+    
     return true;
 }
 
 
 ManipulatorFkPosition::ManipulatorFkPosition()
-    : ManipulatorPosition(FK)
+    : ManipulatorFkPosition(GeneralId())
 {
-    jointDisplacements.fill(0.0);
+
+}
+
+
+ManipulatorFkPosition::ManipulatorFkPosition(const GeneralId& id)
+    : ManipulatorPosition(FK, id),
+      prismaticJointFlags_(0)
+{
+    jointDisplacements_.fill(0.0);
+    numJoints_ = 0;
 }
 
 
 ManipulatorFkPosition::ManipulatorFkPosition(const ManipulatorFkPosition& org)
-    : ManipulatorPosition(org)
+    : ManipulatorPosition(org),
+      jointDisplacements_(org.jointDisplacements_),
+      prismaticJointFlags_(org.prismaticJointFlags_)
 {
-    jointDisplacements = org.jointDisplacements;
+    numJoints_ = org.numJoints_;
 }
 
 
-ManipulatorFkPosition& ManipulatorFkPosition::operator=(const ManipulatorFkPosition& rhs)
-{
-    setName(rhs.name());
-    jointDisplacements = rhs.jointDisplacements;
-    return *this;
-}
-
-
-ManipulatorPosition* ManipulatorFkPosition::clone() const
+Referenced* ManipulatorFkPosition::doClone(CloneMap*) const
 {
     return new ManipulatorFkPosition(*this);
 }
@@ -445,15 +359,17 @@ ManipulatorPosition* ManipulatorFkPosition::clone() const
 bool ManipulatorFkPosition::setCurrentPosition(LinkKinematicsKit* kinematicsKit)
 {
     auto path = kinematicsKit->jointPath();
-    const int n = std::min(path->numJoints(), MaxNumJoints);
+    numJoints_ = std::min(path->numJoints(), MaxNumJoints);
     int i;
-    for(i = 0; i < n; ++i){
-        jointDisplacements[i] = path->joint(i)->q();
+    for(i = 0; i < numJoints_; ++i){
+        auto joint = path->joint(i);
+        jointDisplacements_[i] = joint->q();
+        prismaticJointFlags_[i] = joint->isPrismaticJoint();
     }
     for( ; i < MaxNumJoints; ++i){
-        jointDisplacements[i] = 0.0;
+        jointDisplacements_[i] = 0.0;
+        prismaticJointFlags_[i] = false;
     }
-
     return true;
 }
 
@@ -461,9 +377,8 @@ bool ManipulatorFkPosition::setCurrentPosition(LinkKinematicsKit* kinematicsKit)
 bool ManipulatorFkPosition::apply(LinkKinematicsKit* kinematicsKit) const
 {
     auto path = kinematicsKit->jointPath();
-    const int n = std::min(path->numJoints(), MaxNumJoints);
-    for(int i = 0; i < n; ++i){
-        path->joint(i)->q() = jointDisplacements[i];
+    for(int i = 0; i < numJoints_; ++i){
+        path->joint(i)->q() = jointDisplacements_[i];
     }
     path->calcForwardKinematics();
 
@@ -477,15 +392,33 @@ bool ManipulatorFkPosition::read(const Mapping& archive)
         return false;
     }
 
-    auto& nodes = *archive.findListing("jointDisplacements");
-    if(nodes.isValid()){
-        int i;
-        int n = std::min(nodes.size(), MaxNumJoints);
-        for(i = 0; i < n; ++i){
-            jointDisplacements[i] = radian(nodes[i].toDouble());
+    prismaticJointFlags_.reset();
+    auto& plist = *archive.findListing("prismaticJoints");
+    if(!plist.isValid()){
+        for(int i=0; i < plist.size(); ++i){
+            int index = plist[i].toInt();
+            if(index < MaxNumJoints){
+                prismaticJointFlags_[index] = true;
+            }
         }
-        for( ; i < MaxNumJoints; ++i){
-            jointDisplacements[i] = 0.0;
+    }
+
+    auto& nodes = *archive.findListing("jointDisplacements");
+    if(!nodes.isValid()){
+        numJoints_ = 0;
+    } else {
+        numJoints_ = std::min(nodes.size(), MaxNumJoints);
+        int i = 0;
+        while(i < numJoints_){
+            double q = nodes[i].toDouble();
+            if(!prismaticJointFlags_[i]){
+                q = radian(q);
+            }
+            jointDisplacements_[i] = q;
+            ++i;
+        }
+        while(i < MaxNumJoints){
+            jointDisplacements_[i++] = 0.0;
         }
     }
     
@@ -495,403 +428,29 @@ bool ManipulatorFkPosition::read(const Mapping& archive)
 
 bool ManipulatorFkPosition::write(Mapping& archive) const
 {
+    archive.write("type", "FkPosition");
+    
     ManipulatorPosition::write(archive);
 
-    auto& nodes = *archive.createFlowStyleListing("jointDisplacements");
-    for(auto& q : jointDisplacements){
-        nodes.append(degree(q));
-    }
-    
-    return true;
-}
+    archive.setDoubleFormat("%.9g");
 
+    auto& qlist = *archive.createFlowStyleListing("jointDisplacements");
+    ListingPtr plist = new Listing;
 
-ManipulatorPositionCloneMap::ManipulatorPositionCloneMap()
-    : positionCloneMap(
-        [](const Referenced* org) -> Referenced* {
-            return static_cast<const ManipulatorPosition*>(org)->clone();
-        }),
-      positionSetCloneMap(
-        [this](const Referenced* org) -> Referenced* {
-            return new ManipulatorPositionSet(static_cast<const ManipulatorPositionSet&>(*org), *this);
-        })
-{
-
-}
-
-
-void ManipulatorPositionCloneMap::clear()
-{
-    positionCloneMap.clear();
-    positionSetCloneMap.clear();
-}
-
-
-ManipulatorPositionSet* ManipulatorPositionCloneMap::getClone(ManipulatorPositionSet* org, bool createClone)
-{
-    ManipulatorPositionSet* clone;
-    if(createClone){
-        clone = positionSetCloneMap.getClone(org);
-    } else {
-        clone = org;
-        positionSetCloneMap.setOriginalAsClone(org);
-        for(auto& position : org->positions_){
-            positionCloneMap.setOriginalAsClone(position);
-        }
-    }
-    return clone;
-}
-
-
-ManipulatorPositionSet::ManipulatorPositionSet()
-{
-    impl = new Impl(this);
-}
-
-
-ManipulatorPositionSet::Impl::Impl(ManipulatorPositionSet* self)
-    : self(self)
-{
-    
-}
-
-
-ManipulatorPositionSet::ManipulatorPositionSet
-(const ManipulatorPositionSet& org, ManipulatorPositionCloneMap& cloneMap)
-{
-    impl = new ManipulatorPositionSet::Impl(this, *org.impl, cloneMap);
-}
-
-
-ManipulatorPositionSet::Impl::Impl
-(ManipulatorPositionSet* self, const Impl& org, ManipulatorPositionCloneMap& cloneMap)
-    : self(self)
-{
-    for(auto& position : self->positions_){
-        auto clone = cloneMap.getClone(position);
-        append(clone, false);
-    }
-
-    // Do shallow copy for the parents
-    auto parent = org.weak_parentSet.lock();
-    while(parent){
-        weak_parentSet = cloneMap.getClone(parent, false);
-        parent = parent->impl->weak_parentSet.lock();
-    }
-
-    // Do deep copy for the children
-    childSets.reserve(org.childSets.size());
-    for(auto& child : org.childSets){
-        childSets.push_back(cloneMap.getClone(child, true));
-    }
-}
-    
-
-void ManipulatorPositionSet::clear()
-{
-    impl->pointerToIteratorMap.clear();
-    impl->nameToIteratorMap.clear();
-    positions_.clear();
-}
-
-
-bool ManipulatorPositionSet::append(ManipulatorPosition* position, bool doOverwrite)
-{
-    return impl->append(position, doOverwrite);
-}
-
-
-bool ManipulatorPositionSet::Impl::append(ManipulatorPosition* position, bool doOverwrite)
-{
-    if(position->positionType() == ManipulatorPosition::Reference){
-        return false;
-    }
-    
-    auto& positions = self->positions_;
-    
-    auto iter = nameToIteratorMap.find(position->name());
-    if(iter != nameToIteratorMap.end()){
-        if(!doOverwrite){
-            return false;
+    for(int i=0; i < numJoints_; ++i){
+        double q = jointDisplacements_[i];
+        if(prismaticJointFlags_[i]){
+            plist->append(i);
         } else {
-            // remove existing position with the same name
-            auto listIter = iter->second;
-            auto pointer = *listIter;
-            pointerToIteratorMap.erase(pointer);
-            nameToIteratorMap.erase(iter);
-            positions.erase(listIter);
+            q = degree(q);
         }
+        qlist.append(q);
     }
 
-    auto owner = position->ownerPositionSet();
-    if(owner){
-        owner->remove(position);
-    }
-
-    auto inserted = positions.insert(positions.end(), position);
-    nameToIteratorMap[position->name()] = inserted;
-    pointerToIteratorMap[position] = inserted;
-
-    position->weak_ownerPositionSet = self;
-
-    return true;
-}
-
-
-bool ManipulatorPositionSet::remove(ManipulatorPosition* position)
-{
-    return impl->remove(position);
-}
-
-
-bool ManipulatorPositionSet::Impl::remove(ManipulatorPosition* position)
-{
-    auto found = find(position, true, true);
-    auto owner = found.first;
-    if(owner){
-        position->weak_ownerPositionSet.reset();
-        auto& iter = found.second;
-        auto& listIter = iter->second;
-        owner->positions_.erase(listIter);
-        owner->impl->nameToIteratorMap.erase(position->name());
-        owner->impl->pointerToIteratorMap.erase(iter);
-    }
-    return owner != nullptr;
-}
-
-
-int ManipulatorPositionSet::removeUnreferencedPositions
-(std::function<bool(ManipulatorPosition* position)> isReferenced)
-{
-    int numRemoved = 0;
-    
-    auto iter = positions_.begin();
-    while(iter != positions_.end()){
-        auto& position = *iter;
-        if(isReferenced(position)){
-            ++iter;
-        } else {
-            impl->pointerToIteratorMap.erase(position);
-            impl->nameToIteratorMap.erase(position->name());
-            iter = positions_.erase(iter);
-            ++numRemoved;
-        }
-    }
-
-    return numRemoved;
-}            
-
-
-pair<ManipulatorPositionSet*, PointerToIteratorMap::iterator>
-ManipulatorPositionSet::Impl::find
-(ManipulatorPosition* position, bool traverseParent, bool traverseChildren)
-{
-    pair<ManipulatorPositionSet*, PointerToIteratorMap::iterator> found;
-    found.first = nullptr;
-
-    auto iter = pointerToIteratorMap.find(position);
-    if(iter != pointerToIteratorMap.end()){
-        found.first = self;
-        found.second = iter;
-    } else {
-        if(traverseChildren){
-            for(auto& child : childSets){
-                found = child->impl->find(position, false, true);
-                if(found.first){
-                    break;
-                }
-            }
-        }
-        if(!found.first && traverseParent){
-            auto parentSet = weak_parentSet.lock();
-            found = parentSet->impl->find(position, true, false);
-        }
-    }
-
-    return found;
-}
-
-
-ManipulatorPosition* ManipulatorPositionSet::find(const std::string& name)
-{
-    auto found = impl->find(name, true, true);
-    if(found.first){
-        return *found.second->second;
-    }
-    return nullptr;
-}
-
-
-pair<ManipulatorPositionSet::Impl*, NameToIteratorMap::iterator>
-ManipulatorPositionSet::Impl::find
-(const std::string& name, bool traverseParent, bool traverseChildren)
-{
-    pair<ManipulatorPositionSet::Impl*, NameToIteratorMap::iterator> found;
-    found.first = nullptr;
-    
-    auto iter = nameToIteratorMap.find(name);
-    if(iter != nameToIteratorMap.end()){
-        found.first = this;
-        found.second = iter;
-    } else {
-        if(traverseChildren){
-            for(auto& child : childSets){
-                found = child->impl->find(name, false, true);
-                if(found.first){
-                    break;
-                }
-            }
-        }
-        if(!found.first && traverseParent){
-            if(auto parentSet = weak_parentSet.lock()){
-                found = parentSet->impl->find(name, true, false);
-            }
-        }
-    }
-
-    return found;
-}
-
-
-bool ManipulatorPositionSet::Impl::rewriteNameToIteratorMap(const string& oldName, const string& newName)
-{
-    bool done = false;
-    
-    auto found_old = find(oldName, true, true);
-    auto owner = found_old.first;
-    if(owner){
-        auto& nameMap = owner->nameToIteratorMap;
-        auto iter = nameMap.find(newName);
-        if(iter == nameMap.end()){ // new name does not exist
-            auto& nameMapIter = found_old.second;
-            auto& listIter = nameMapIter->second;
-            nameMap.erase(nameMapIter);
-            nameMap[newName] = listIter;
-            done = true;
-        }
-    }
-        
-    return done;
-}
-
-
-void ManipulatorPositionSet::resetNumbering(const std::string& format, int initial, const std::string& pattern)
-{
-    impl->numberingFormat = format;
-    impl->numberingCounter = initial;
-
-    if(!pattern.empty()){
-        impl->numberingPattern.assign(pattern);
-    } else {
-        impl->numberingPattern.assign("(\\d+)");
-    }
-    smatch match;
-    for(auto& position : positions_){
-        if(regex_search(position->name(), match, impl->numberingPattern)){
-            int number = std::stoi(match.str(1));
-            if(number > impl->numberingCounter){
-                impl->numberingCounter = number;
-            }
-        }
-    }
-}
-
-
-std::string ManipulatorPositionSet::getNextNumberedName() const
-{
-    if(impl->numberingFormat.empty()){
-        const_cast<ManipulatorPositionSet*>(this)->resetNumbering("{}", 0);
-    }
-
-    string name;
-    for(int i=0; i < 100; ++i){
-        name = fmt::format(impl->numberingFormat, impl->numberingCounter);
-        auto found = impl->find(name, false, false);
-        if(!found.first){
-            break;
-        }
-        ++impl->numberingCounter;
-    }
-
-    return name;
-}
-
-
-ManipulatorPositionSet* ManipulatorPositionSet::parentSet()
-{
-    return impl->weak_parentSet.lock();
-}
-
-
-int ManipulatorPositionSet::numChildSets()
-{
-    return impl->childSets.size();
-}
-
-
-ManipulatorPositionSet* ManipulatorPositionSet::childSet(int index)
-{
-    if(index < (int)impl->childSets.size()){
-        return impl->childSets[index];
-    }
-    return nullptr;
-}
-
-
-bool ManipulatorPositionSet::read(const Mapping& archive)
-{
-    auto& typeNode = archive.get("type");
-    if(typeNode.toString() != "ManipulatorPositionSet"){
-        typeNode.throwException(
-            format(_("{0} cannot be loaded as a manipulator position set"), typeNode.toString()));
-    }
-        
-    auto& versionNode = archive.get("formatVersion");
-    auto version = versionNode.toDouble();
-    if(version != 1.0){
-        versionNode.throwException(format(_("Format version {0} is not supported."), version));
-    }
-
-    auto& positionNodes = *archive.findListing("positions");
-    if(positionNodes.isValid()){
-        for(int i=0; i < positionNodes.size(); ++i){
-            auto& node = *positionNodes[i].toMapping();
-            auto& typeNode = node["type"];
-            auto type = typeNode.toString();
-            ManipulatorPositionPtr position;
-            if(type == "IkPosition"){
-                position = new ManipulatorIkPosition;
-            } else if(type == "FkPosition"){
-                position = new ManipulatorFkPosition;
-            } else {
-                typeNode.throwException(format(_("{0} is not supported"), type));
-            }
-            if(position){
-                if(position->read(node)){
-                    append(position, true);
-                }
-            }
-        }
+    if(!plist->empty()){
+        plist->setFlowStyle(true);
+        archive.insert("prismaticJoints", plist);
     }
     
-    return true;
-}
-
-
-bool ManipulatorPositionSet::write(Mapping& archive) const
-{
-    archive.write("type", "ManipulatorPositionSet");
-    archive.write("formatVersion", 1.0);
-
-    if(!positions_.empty()){
-        Listing& positionNodes = *archive.createListing("positions");
-        for(auto& position : positions_){
-            MappingPtr node = new Mapping;
-            if(position->write(*node)){
-                positionNodes.append(node);
-            }
-        }
-    }
-
     return true;
 }

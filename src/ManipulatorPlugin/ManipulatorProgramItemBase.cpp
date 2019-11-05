@@ -1,5 +1,6 @@
 #include "ManipulatorProgramItemBase.h"
 #include "ManipulatorProgram.h"
+#include "ManipulatorPositionList.h"
 #include <cnoid/ItemManager>
 #include <cnoid/BodyItem>
 #include <cnoid/LinkKinematicsKit>
@@ -62,7 +63,7 @@ ManipulatorProgramItemBase::Impl::Impl(ManipulatorProgramItemBase* self, const I
 void ManipulatorProgramItemBase::Impl::setupSignalConnections()
 {
     program->sigStatementInserted().connect(
-        [&](ManipulatorProgram*, ManipulatorProgram::iterator){
+        [&](ManipulatorProgram::iterator){
             self->suggestFileUpdate(); });
 
     program->sigStatementRemoved().connect(
@@ -145,9 +146,17 @@ const ManipulatorProgram* ManipulatorProgramItemBase::program() const
 }
 
 
+void ManipulatorProgramItemBase::notifyUpdate()
+{
+    Item::notifyUpdate();
+    suggestFileUpdate();
+}
+    
+
 void ManipulatorProgramItemBase::doPutProperties(PutPropertyFunction& putProperty)
 {
-
+    putProperty(_("Num statements"), impl->program->numStatements());
+    putProperty(_("Num positions"), impl->program->positions()->numPositions());
 }
 
 
