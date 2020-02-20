@@ -1,11 +1,11 @@
 #include "PositionWidget.h"
-#include <cnoid/MenuManager>
+#include "MenuManager.h"
+#include "Archive.h"
+#include "Buttons.h"
+#include "SpinBox.h"
+#include "Separator.h"
 #include <cnoid/EigenUtil>
 #include <cnoid/ConnectionSet>
-#include <cnoid/Archive>
-#include <cnoid/Buttons>
-#include <cnoid/SpinBox>
-#include <cnoid/Separator>
 #include <QLabel>
 #include <QGridLayout>
 #include <QMouseEvent>
@@ -48,24 +48,21 @@ public:
     vector<QWidget*> inputSpins;
     ScopedConnectionSet userInputConnections;
 
-    QLabel caption;
+    QVBoxLayout* mainvbox;
 
     DoubleSpinBox xyzSpin[3];
-
     enum AttitudeMode { RollPitchYawMode, QuaternionMode };
     AttitudeMode lastInputAttitudeMode;
-    
+    bool isUserInputValuePriorityMode;
     bool isRpyEnabled;
     bool isUniqueRpyMode;
+    bool isQuaternionEnabled;
+    bool isRotationMatrixEnabled;
     Vector3 referenceRpy;
     DoubleSpinBox rpySpin[3];
     vector<QWidget*> rpyWidgets;
-    
-    bool isQuaternionEnabled;
     DoubleSpinBox quatSpin[4];
     vector<QWidget*> quatWidgets;
-    
-    bool isRotationMatrixEnabled;
     QWidget rotationMatrixPanel;
     QLabel rotationMatrixElementLabel[3][3];
 
@@ -77,7 +74,7 @@ public:
     void resetInputWidgetStyles();
     void clearPosition();
     void refreshPosition();
-    void updatePosition(const Position& T);
+    void setPosition(const Position& T);
     void updateRotationMatrix(const Matrix3& R);
     Vector3 getRpyInput();
     void onPositionInput(InputElementSet inputElements);
@@ -109,16 +106,12 @@ PositionWidget::Impl::Impl(PositionWidget* self)
 {
     //self->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
 
-    auto mainvbox = new QVBoxLayout;
+    mainvbox = new QVBoxLayout;
     mainvbox->setContentsMargins(0, 0, 0, 0);
     self->setLayout(mainvbox);
 
     auto grid = new QGridLayout;
     int row = 0;
-
-    caption.setStyleSheet("font-weight: bold");
-    grid->addWidget(&caption, row++, 1, 1, 5);
-    caption.setVisible(false);
 
     static const char* xyzLabels[] = { "X", "Y", "Z" };
     for(int i=0; i < 3; ++i){
@@ -232,6 +225,7 @@ PositionWidget::Impl::Impl(PositionWidget* self)
     hbox->addWidget(separator);
     hbox->addStretch();
 
+    isUserInputValuePriorityMode = false;
     isRpyEnabled = true;
     isUniqueRpyMode = false;
     referenceRpy.setZero();
@@ -248,18 +242,6 @@ PositionWidget::Impl::Impl(PositionWidget* self)
     lastInputAttitudeMode = RollPitchYawMode;
 
     clearPosition();
-}
-
-
-void PositionWidget::setCaptionVisible(bool on)
-{
-    impl->caption.setVisible(on);
-}
-
-
-void PositionWidget::setCaption(const std::string& caption)
-{
-    impl->caption.setText(caption.c_str());
 }
 
 
@@ -298,6 +280,12 @@ void PositionWidget::setEditable(bool on)
     for(auto& widget : impl->inputPanelWidgets){
         widget->setEnabled(on);
     }
+}
+
+
+void PositionWidget::setUserInputValuePriorityMode(bool on)
+{
+    impl->isUserInputValuePriorityMode = on;
 }
     
 
@@ -375,7 +363,7 @@ void PositionWidget::refreshPosition()
 
 void PositionWidget::Impl::refreshPosition()
 {
-    updatePosition(T_last);
+    setPosition(T_last);
 }
 
 
@@ -385,20 +373,20 @@ void PositionWidget::setReferenceRpy(const Vector3& rpy)
 }
 
 
-void PositionWidget::updatePosition(const Position& T)
+void PositionWidget::setPosition(const Position& T)
 {
-    impl->updatePosition(T);
+    impl->setPosition(T);
 }
 
 
-void PositionWidget::Impl::updatePosition(const Position& T)
+void PositionWidget::Impl::setPosition(const Position& T)
 {
     userInputConnections.block();
 
     Vector3 p = T.translation();
     for(int i=0; i < 3; ++i){
         auto& spin = xyzSpin[i];
-        if(!spin.hasFocus()){
+        if(!isUserInputValuePriorityMode || !spin.hasFocus()){
             spin.setValue(p[i]);
         }
     }
@@ -422,10 +410,16 @@ void PositionWidget::Impl::updatePosition(const Position& T)
     }
     
     if(isQuaternionEnabled){
-        if(!quatSpin[0].hasFocus() &&
-           !quatSpin[1].hasFocus() &&
-           !quatSpin[2].hasFocus() &&
-           !quatSpin[3].hasFocus()){
+        bool skipUpdate = false;
+        if(isUserInputValuePriorityMode){
+            for(int i=0; i < 4; ++i){
+                if(quatSpin[i].hasFocus()){
+                    skipUpdate = true;
+                    break;
+                }
+            }
+        }
+        if(!skipUpdate){
             Eigen::Quaterniond quat(R);
             quatSpin[0].setValue(quat.x());
             quatSpin[1].setValue(quat.y());
@@ -554,10 +548,10 @@ void PositionWidget::storeState(Archive& archive)
 
 void PositionWidget::Impl::storeState(Archive& archive)
 {
-    archive.write("showRPY", isRpyEnabled);
-    archive.write("uniqueRPY", isUniqueRpyMode);
-    archive.write("showQuoternion", isQuaternionEnabled);
-    archive.write("showRotationMatrix", isRotationMatrixEnabled);
+    archive.write("show_rpy", isRpyEnabled);
+    archive.write("unique_rpy", isUniqueRpyMode);
+    archive.write("show_quoternion", isQuaternionEnabled);
+    archive.write("show_rotation_matrix", isRotationMatrixEnabled);
 }
 
 
@@ -571,10 +565,10 @@ void PositionWidget::Impl::restoreState(const Archive& archive)
 {
     userInputConnections.block();
     
-    setRpyEnabled(archive.get("showRPY", isRpyEnabled));
-    archive.read("uniqueRPY", isUniqueRpyMode);
-    setQuaternionEnabled(archive.get("showQuoternion", isQuaternionEnabled));
-    setRotationMatrixEnabled(archive.get("showRotationMatrix", isRotationMatrixEnabled));
+    setRpyEnabled(archive.get("show_rpy", isRpyEnabled));
+    archive.read("unique_rpy", isUniqueRpyMode);
+    setQuaternionEnabled(archive.get("show_quoternion", isQuaternionEnabled));
+    setRotationMatrixEnabled(archive.get("show_rotation_matrix", isRotationMatrixEnabled));
 
     userInputConnections.unblock();
 }

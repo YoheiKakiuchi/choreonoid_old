@@ -9,7 +9,7 @@
 #include <cnoid/Item>
 #include <cnoid/Body>
 #include <cnoid/CollisionLinkPair>
-#include <cnoid/PlaceableItem>
+#include <cnoid/LocatableItem>
 #include <cnoid/RenderableItem>
 #include <cnoid/stdx/optional>
 #include "exportdecl.h"
@@ -23,7 +23,7 @@ class PinDragIK;
 class PenetrationBlocker;
 class EditableSceneBody;
 
-class CNOID_EXPORT BodyItem : public Item, public PlaceableItem, public RenderableItem
+class CNOID_EXPORT BodyItem : public Item, public LocatableItem, public RenderableItem
 {
 public:
     static void initializeClass(ExtensionManager* ext);
@@ -38,11 +38,6 @@ public:
 
     bool makeBodyStatic();
     bool makeBodyDynamic();
-
-    //! \deprecated. Use EditableSceneBody::isDraggable().
-    bool isEditable() const;
-    //! \deprecated. Use EditableSceneBody::setDraggable().
-    void setEditable(bool on);
 
     // API for a composite body
     // The following body and link pair is basically determined by
@@ -146,11 +141,13 @@ public:
 
     bool setStance(double width);
 
-    // PlaceableItem functions
-    virtual SignalProxy<void()> sigLocationChanged() override;
+    // LocatableItem functions
     virtual Position getLocation() const override;
+    virtual bool prefersLocalLocation() const override;
+    virtual SignalProxy<void()> sigLocationChanged() override;
+    virtual void setLocationEditable(bool on) override;
     virtual void setLocation(const Position& T) override;
-    virtual bool isLocationEditable() const override;
+    virtual LocatableItem* getParentLocatableItem() override;
 
     // RenderableItem function
     virtual SgNode* getScene() override;
