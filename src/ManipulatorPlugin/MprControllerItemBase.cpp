@@ -314,19 +314,16 @@ bool MprControllerItemBase::Impl::initialize(ControllerIO* io)
 
 bool MprControllerItemBase::Impl::createKinematicsKitForControl()
 {
-    auto orgKit = startupProgramItem->kinematicsKit();
-
-    if(!orgKit->baseLink()){
+    kinematicsKit = cloneMap.getClone(startupProgramItem->kinematicsKit());
+    if(!kinematicsKit->jointPath()){
         return false;
     }
 
-    auto body = orgKit->body()->clone();
-    auto targetLink = body->link(orgKit->link()->index());
-    auto baseLink = body->link(orgKit->baseLink()->index());
-
-    kinematicsKit = new LinkKinematicsKit(targetLink);
-    kinematicsKit->setBaseLink(baseLink);
-    kinematicsKit->setFrameSets(new LinkCoordinateFrameSet(*orgKit->frameSets()));
+    if(kinematicsKit->isCustomIkDisabled()){
+        io->os() << format(_("Warning: The custom inverse kinematics is disabled in controller \"{0}\" for robot \"{1}\"."),
+                           self->name(), io->body()->name())
+                 << endl;
+    }
 
     return true;
 }
@@ -680,6 +677,7 @@ void MprControllerItemBase::Impl::clear()
     startupProgramItem.reset();
     startupProgram.reset();
     currentProgram.reset();
+    otherProgramMap.clear();
     cloneMap.clear();
     kinematicsKit.reset();
     variables.reset();
