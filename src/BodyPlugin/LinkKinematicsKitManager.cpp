@@ -5,8 +5,8 @@
 #include <cnoid/JointPath>
 #include <cnoid/CompositeIK>
 #include <cnoid/CoordinateFrameList>
-#include <cnoid/LinkCoordinateFrameSet>
-#include <cnoid/LinkCoordinateFrameListSetItem>
+#include <cnoid/LinkCoordFrameSetSuite>
+#include <cnoid/LinkCoordFrameListSuiteItem>
 #include <cnoid/RootItem>
 #include <cnoid/BodyItem>
 #include <cnoid/WorldItem>
@@ -25,7 +25,7 @@ namespace {
 enum FrameType {
     WorldFrame = LinkKinematicsKit::WorldFrame,
     BodyFrame = LinkKinematicsKit::BodyFrame,
-    EndFrame = LinkKinematicsKit::EndFrame
+    LinkFrame = LinkKinematicsKit::LinkFrame
 };
 
 }
@@ -40,8 +40,9 @@ public:
     // Use an integer value as a key to keep the number of instances growing
     map<int, LinkKinematicsKitPtr> linkIndexToKinematicsKitMap;
 
+    ScopedConnection bodyItemConnection;
     ScopedConnection frameListConnection;
-    LinkCoordinateFrameSetPtr commonFrameSets;
+    LinkCoordFrameSetSuitePtr commonFrameSetSuite;
 
     BodySelectionManager* bodySelectionManager;
     AbstractPositionEditTarget* frameEditTarget;
@@ -53,11 +54,13 @@ public:
 
     Impl(BodyItem* bodyItem);
     std::shared_ptr<InverseKinematics> findPresetIK(Link* targetLink);
-    void onFrameListSetItemAddedOrUpdated(LinkCoordinateFrameListSetItem* frameListSetItem);
+    void onBodyItemPositionChanged();
+    void findFrameListSuiteItem();
+    void onFrameListSuiteItemAddedOrUpdated(LinkCoordFrameListSuiteItem* frameListSuiteItem);
     void setupPositionDragger();
     bool onPositionEditRequest(AbstractPositionEditTarget* target);
     bool startBodyFrameEditing(AbstractPositionEditTarget* target, CoordinateFrame* frame);
-    bool startEndFrameEditing(AbstractPositionEditTarget* target, CoordinateFrame* frame);
+    bool startLinkFrameEditing(AbstractPositionEditTarget* target, CoordinateFrame* frame);
     void setFrameEditTarget(AbstractPositionEditTarget* target, Link* link);
     void onFrameEditPositionChanged(const Position& T);
     void onDraggerPositionChanged();
@@ -75,16 +78,21 @@ LinkKinematicsKitManager::LinkKinematicsKitManager(BodyItem* bodyItem)
 LinkKinematicsKitManager::Impl::Impl(BodyItem* bodyItem)
     : bodyItem(bodyItem)
 {
-    commonFrameSets = new LinkCoordinateFrameSet;
-
-    frameListConnection =
-        LinkCoordinateFrameListSetItem::sigInstanceAddedOrUpdated().connect(
-            [&](LinkCoordinateFrameListSetItem* frameListSetItem){
-                onFrameListSetItemAddedOrUpdated(frameListSetItem);
-            });
-
+    bodyItemConnection =
+        bodyItem->sigPositionChanged().connect(
+            [&](){ onBodyItemPositionChanged(); });
+    
     bodySelectionManager = BodySelectionManager::instance();
     
+    commonFrameSetSuite = new LinkCoordFrameSetSuite;
+    findFrameListSuiteItem();
+
+    frameListConnection =
+        LinkCoordFrameListSuiteItem::sigInstanceAddedOrUpdated().connect(
+            [&](LinkCoordFrameListSuiteItem* frameListSuiteItem){
+                onFrameListSuiteItemAddedOrUpdated(frameListSuiteItem);
+            });
+
     setupPositionDragger();
 }
 
@@ -120,7 +128,7 @@ LinkKinematicsKit* LinkKinematicsKitManager::findKinematicsKit(Link* targetLink)
         if(auto presetIK = impl->findPresetIK(targetLink)){
             kit = new LinkKinematicsKit(targetLink);
             kit->setInversetKinematics(presetIK);
-            kit->setFrameSets(impl->commonFrameSets);
+            kit->setFrameSetSuite(impl->commonFrameSetSuite);
             impl->linkIndexToKinematicsKitMap[targetLink->index()] = kit;
         }
     }
@@ -161,35 +169,37 @@ std::shared_ptr<InverseKinematics> LinkKinematicsKitManager::Impl::findPresetIK(
 }
 
 
-void LinkKinematicsKitManager::Impl::onFrameListSetItemAddedOrUpdated
-(LinkCoordinateFrameListSetItem* frameListSetItem)
+void LinkKinematicsKitManager::Impl::onBodyItemPositionChanged()
+{
+    commonFrameSetSuite->resetFrameSets();
+    findFrameListSuiteItem();
+}
+
+
+void LinkKinematicsKitManager::Impl::findFrameListSuiteItem()
+{
+    if(auto suiteItem = bodyItem->findItem<LinkCoordFrameListSuiteItem>()){
+        *commonFrameSetSuite = *suiteItem->frameSetSuite();
+    }
+}
+
+
+void LinkKinematicsKitManager::Impl::onFrameListSuiteItemAddedOrUpdated
+(LinkCoordFrameListSuiteItem* frameListSuiteItem)
 {
     bool isTargetFrameList = false;
-    
-    auto upperItem = frameListSetItem->parentItem();
+    auto upperItem = frameListSuiteItem->parentItem();
     while(upperItem){
         if(auto upperBodyItem = dynamic_cast<BodyItem*>(upperItem)){
             if(upperBodyItem == bodyItem){
                 isTargetFrameList = true;
-                break;
             }
-        } else if(auto worldItem = dynamic_cast<WorldItem*>(upperItem)){
-            if(bodyItem->findOwnerItem<WorldItem>() == worldItem){
-                isTargetFrameList = true;
-                break;
-            }
+            break;
         }
         upperItem = upperItem->parentItem();
     }
-    if(!isTargetFrameList){
-        if(bodyItem->findOwnerItem<LinkCoordinateFrameListSetItem>() == frameListSetItem){
-            isTargetFrameList = true;
-        }
-    }
-        
     if(isTargetFrameList){
-        *commonFrameSets = *frameListSetItem->frameSets();
-
+        *commonFrameSetSuite = *frameListSuiteItem->frameSetSuite();
         for(auto& kv : linkIndexToKinematicsKitMap){
             auto& kit = kv.second;
             kit->notifyFrameUpdate();
@@ -228,10 +238,10 @@ bool LinkKinematicsKitManager::Impl::onPositionEditRequest(AbstractPositionEditT
     bool accepted = false;
     if(auto frame = dynamic_cast<CoordinateFrame*>(target->getPositionObject())){
         if(auto frameSet = frame->ownerFrameSet()){
-            if(commonFrameSets->frameSet(BodyFrame)->contains(frameSet)){
+            if(commonFrameSetSuite->frameSet(BodyFrame)->contains(frameSet)){
                 accepted = startBodyFrameEditing(target, frame);
-            } else if(commonFrameSets->frameSet(EndFrame)->contains(frameSet)){
-                accepted = startEndFrameEditing(target, frame);
+            } else if(commonFrameSetSuite->frameSet(LinkFrame)->contains(frameSet)){
+                accepted = startLinkFrameEditing(target, frame);
             }
         }
     }
@@ -254,7 +264,7 @@ bool LinkKinematicsKitManager::Impl::startBodyFrameEditing
 }
 
 
-bool LinkKinematicsKitManager::Impl::startEndFrameEditing
+bool LinkKinematicsKitManager::Impl::startLinkFrameEditing
 (AbstractPositionEditTarget* target, CoordinateFrame* frame)
 {
     auto endLink = bodyItem->body()->findUniqueEndLink();

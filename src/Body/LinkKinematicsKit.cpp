@@ -5,7 +5,7 @@
 #include "CompositeBodyIK.h"
 #include "HolderDevice.h"
 #include "AttachmentDevice.h"
-#include <cnoid/LinkCoordinateFrameSet>
+#include <cnoid/LinkCoordFrameSetSuite>
 #include <cnoid/CloneMap>
 #include <cnoid/ValueTree>
 
@@ -25,7 +25,7 @@ public:
     bool isCustomIkDisabled;
     bool isRpySpecified;
     Vector3 referenceRpy;
-    LinkCoordinateFrameSetPtr frameSets;
+    LinkCoordFrameSetSuitePtr frameSetSuite;
     GeneralId currentFrameId[3];
     int currentBaseFrameType;
     Signal<void()> sigFrameUpdate;
@@ -34,7 +34,7 @@ public:
     Impl(const Impl& org, CloneMap* cloneMap);
     void setBaseLink(Link* link);
     void setInversetKinematics(std::shared_ptr<InverseKinematics> ik);
-    void setFrameSets(LinkCoordinateFrameSet* frameSets);
+    void setFrameSetSuite(LinkCoordFrameSetSuite* frameSetSuite);
     Link* baseLink();
 };
 
@@ -84,7 +84,7 @@ LinkKinematicsKit::Impl::Impl(const Impl& org, CloneMap* cloneMap)
                 setBaseLink(baseLink);
             }
         }
-        setFrameSets(cloneMap->getClone(org.frameSets));
+        setFrameSetSuite(cloneMap->getClone(org.frameSetSuite));
     }
 }
 
@@ -156,15 +156,15 @@ void LinkKinematicsKit::Impl::setInversetKinematics(std::shared_ptr<InverseKinem
 }
 
 
-void LinkKinematicsKit::setFrameSets(LinkCoordinateFrameSet* frameSets)
+void LinkKinematicsKit::setFrameSetSuite(LinkCoordFrameSetSuite* frameSetSuite)
 {
-    impl->setFrameSets(frameSets);
+    impl->setFrameSetSuite(frameSetSuite);
 }
 
 
-void LinkKinematicsKit::Impl::setFrameSets(LinkCoordinateFrameSet* frameSets)
+void LinkKinematicsKit::Impl::setFrameSetSuite(LinkCoordFrameSetSuite* frameSetSuite)
 {
-    this->frameSets = frameSets;
+    this->frameSetSuite = frameSetSuite;
 }
 
 
@@ -283,51 +283,51 @@ bool LinkKinematicsKit::isManipulator() const
 }
 
 
-LinkCoordinateFrameSet* LinkKinematicsKit::frameSets()
+LinkCoordFrameSetSuite* LinkKinematicsKit::frameSetSuite()
 {
-    return impl->frameSets;
+    return impl->frameSetSuite;
 }
 
 
 CoordinateFrameSet* LinkKinematicsKit::frameSet(int frameType)
 {
-    return impl->frameSets->frameSet(frameType);
+    return impl->frameSetSuite->frameSet(frameType);
 }
 
 
 CoordinateFrameSet* LinkKinematicsKit::worldFrameSet()
 {
-    return impl->frameSets->worldFrameSet();
+    return impl->frameSetSuite->worldFrameSet();
 }
 
 
 CoordinateFrameSet* LinkKinematicsKit::bodyFrameSet()
 {
-    return impl->frameSets->bodyFrameSet();
+    return impl->frameSetSuite->bodyFrameSet();
 }
 
 
-CoordinateFrameSet* LinkKinematicsKit::endFrameSet()
+CoordinateFrameSet* LinkKinematicsKit::linkFrameSet()
 {
-    return impl->frameSets->endFrameSet();
+    return impl->frameSetSuite->linkFrameSet();
 }
 
 
 CoordinateFrame* LinkKinematicsKit::worldFrame(const GeneralId& id)
 {
-    return impl->frameSets->worldFrame(id);
+    return impl->frameSetSuite->worldFrame(id);
 }
 
 
 CoordinateFrame* LinkKinematicsKit::bodyFrame(const GeneralId& id)
 {
-    return impl->frameSets->bodyFrame(id);
+    return impl->frameSetSuite->bodyFrame(id);
 }
 
 
-CoordinateFrame* LinkKinematicsKit::endFrame(const GeneralId& id)
+CoordinateFrame* LinkKinematicsKit::linkFrame(const GeneralId& id)
 {
-    return impl->frameSets->endFrame(id);
+    return impl->frameSetSuite->linkFrame(id);
 }
 
 
@@ -349,33 +349,33 @@ const GeneralId& LinkKinematicsKit::currentBodyFrameId() const
 }
 
 
-const GeneralId& LinkKinematicsKit::currentEndFrameId() const
+const GeneralId& LinkKinematicsKit::currentLinkFrameId() const
 {
-    return impl->currentFrameId[EndFrame];
+    return impl->currentFrameId[LinkFrame];
 }
 
 
 CoordinateFrame* LinkKinematicsKit::currentFrame(int frameType)
 {
-    return impl->frameSets->frameSet(frameType)->getFrame(currentFrameId(frameType));
+    return impl->frameSetSuite->frameSet(frameType)->getFrame(currentFrameId(frameType));
 }
 
 
 CoordinateFrame* LinkKinematicsKit::currentWorldFrame()
 {
-    return impl->frameSets->worldFrameSet()->getFrame(currentWorldFrameId());
+    return impl->frameSetSuite->worldFrameSet()->getFrame(currentWorldFrameId());
 }
 
 
 CoordinateFrame* LinkKinematicsKit::currentBodyFrame()
 {
-    return impl->frameSets->bodyFrameSet()->getFrame(currentBodyFrameId());
+    return impl->frameSetSuite->bodyFrameSet()->getFrame(currentBodyFrameId());
 }
 
 
-CoordinateFrame* LinkKinematicsKit::currentEndFrame()
+CoordinateFrame* LinkKinematicsKit::currentLinkFrame()
 {
-    return impl->frameSets->endFrameSet()->getFrame(currentEndFrameId());
+    return impl->frameSetSuite->linkFrameSet()->getFrame(currentLinkFrameId());
 }
 
 
@@ -397,9 +397,9 @@ void LinkKinematicsKit::setCurrentBodyFrame(const GeneralId& id)
 }
 
 
-void LinkKinematicsKit::setCurrentEndFrame(const GeneralId& id)
+void LinkKinematicsKit::setCurrentLinkFrame(const GeneralId& id)
 {
-    impl->currentFrameId[EndFrame] = id;
+    impl->currentFrameId[LinkFrame] = id;
 }
 
 
@@ -470,9 +470,9 @@ bool LinkKinematicsKit::storeState(Mapping& archive) const
         archive.write("body_frame", bodyId.label(),
                       bodyId.isString() ? DOUBLE_QUOTED : PLAIN_STRING);
     }
-    auto& endId = currentEndFrameId();
-    if(endId != defaultId){
-        archive.write("link_frame", endId.label(),
+    auto& linkId = currentLinkFrameId();
+    if(linkId != defaultId){
+        archive.write("link_frame", linkId.label(),
                       bodyId.isString() ? DOUBLE_QUOTED : PLAIN_STRING);
     }
     if(impl->isCustomIkDisabled){
@@ -495,7 +495,7 @@ bool LinkKinematicsKit::restoreState(const Mapping& archive)
         updated = true;
     }
     if(id.read(archive, "link_frame")){
-        setCurrentEndFrame(id);
+        setCurrentLinkFrame(id);
         updated = true;
     }
     bool on;

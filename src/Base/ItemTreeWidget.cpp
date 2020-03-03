@@ -30,6 +30,7 @@ class ItwItem : public QTreeWidgetItem
 public:
     Item* item;
     ItemTreeWidget::Impl* widgetImpl;
+    ScopedConnection itemNameConnection;
     ScopedConnection itemSelectionConnection;
     ScopedConnection itemCheckConnection;
     ScopedConnection displayUpdateConnection;
@@ -37,7 +38,6 @@ public:
 
     ItwItem(Item* item, ItemTreeWidget::Impl* widgetImpl);
     virtual ~ItwItem();
-    virtual QVariant data(int column, int role) const override;
     virtual void setData(int column, int role, const QVariant& value) override;
 };
 
@@ -56,7 +56,7 @@ public:
     ScopedConnection localRootItemConnection;
     bool isProcessingSlotOnlocalRootItemPositionChanged;
     std::function<Item*(bool doCreate)> localRootItemUpdateFunction;
-    ScopedConnection treeWidgetSelectionChangeConnection;
+    ScopedConnectionSet treeWidgetSelectionChangeConnections;
     vector<ItemPtr> topLevelItems;
     unordered_map<Item*, ItwItem*> itemToItwItemMap;
     ItemPtr lastClickedItem;
@@ -136,6 +136,7 @@ public:
     void onTreeWidgetRowsAboutToBeRemoved(const QModelIndex& parent, int start, int end);
     void onTreeWidgetRowsInserted(const QModelIndex& parent, int start, int end);
     void onTreeWidgetSelectionChanged();
+    void onTreeWidgetCurrentItemChanged(QTreeWidgetItem* current, QTreeWidgetItem* previous);
     void updateItemSelectionIter(QTreeWidgetItem* twItem, unordered_set<Item*>& selectedItemSet);
     void setItwItemSelected(ItwItem* itwItem, bool on);
     void toggleItwItemCheck(ItwItem* itwItem, int checkId, bool on);
@@ -199,11 +200,6 @@ void ItemTreeWidget::Display::setIcon(const QIcon& icon)
     item->setIcon(0, icon);
 }
 
-void ItemTreeWidget::Display::setText(const std::string& text)
-{
-    item->setText(0, text.c_str());
-}
-
 void ItemTreeWidget::Display::setToolTip(const std::string& toolTip)
 {
     item->setText(0, toolTip.c_str());
@@ -212,6 +208,15 @@ void ItemTreeWidget::Display::setToolTip(const std::string& toolTip)
 void ItemTreeWidget::Display::setStatusTip(const std::string& statusTip)
 {
     item->setStatusTip(0, statusTip.c_str());
+}
+
+void ItemTreeWidget::Display::setNameEditable(bool on)
+{
+    if(on){
+        item->setFlags(item->flags() | Qt::ItemIsEditable);
+    } else {
+        item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+    }
 }
 
 
@@ -231,6 +236,13 @@ ItwItem::ItwItem(Item* item, ItemTreeWidget::Impl* widgetImpl)
     setFlags(flags);
 
     setToolTip(0, QString());
+
+    setText(0, item->name().c_str());
+    itemNameConnection =
+        item->sigNameChanged().connect(
+            [this](const std::string& /* oldName */){
+                setText(0, this->item->name().c_str());
+            });
 
     widgetImpl->setItwItemSelected(this, item->isSelected());
 
@@ -270,15 +282,6 @@ ItwItem::~ItwItem()
     if(widgetImpl->lastClickedItem == item){
         widgetImpl->lastClickedItem = nullptr;
     }
-}
-
-
-QVariant ItwItem::data(int column, int role) const
-{
-    if((role == Qt::DisplayRole || role == Qt::EditRole) && column == 0){
-        return item->name().c_str();
-    }
-    return QTreeWidgetItem::data(column, role);
 }
 
 
@@ -363,11 +366,17 @@ void ItemTreeWidget::Impl::initialize()
     setIndentation(12);
     setSelectionMode(QAbstractItemView::ExtendedSelection);
     setDragDropMode(QAbstractItemView::InternalMove);
+    setExpandsOnDoubleClick(false);
 
-    treeWidgetSelectionChangeConnection =
+    treeWidgetSelectionChangeConnections.add(
         sigItemSelectionChanged().connect(
-            [&](){ onTreeWidgetSelectionChanged(); });
+            [&](){ onTreeWidgetSelectionChanged(); }));
 
+    treeWidgetSelectionChangeConnections.add(
+        sigCurrentItemChanged().connect(
+            [&](QTreeWidgetItem* current, QTreeWidgetItem* previous){
+                onTreeWidgetCurrentItemChanged(current, previous); }));
+    
     projectRootItemConnections.add(
         projectRootItem->sigCheckEntryAdded().connect(
             [&](int checkId){ addCheckColumn(checkId); }));
@@ -1240,15 +1249,38 @@ void ItemTreeWidget::Impl::onTreeWidgetSelectionChanged()
 }
 
 
+/**
+   When the selection changed with the cursor keys, the newly selected item should be
+   the current item, and the sigCurrentItemChanged signal is the only way to detect it.
+*/
+void ItemTreeWidget::Impl::onTreeWidgetCurrentItemChanged(QTreeWidgetItem* current, QTreeWidgetItem* previous)
+{
+    auto selected = selectedItems();
+    if(selected.size() == 1 && current == selected.front()){
+        if(auto itwItem = dynamic_cast<ItwItem*>(current)){
+            itwItem->itemSelectionConnection.block();
+            itwItem->item->setSelected(true, true);
+            itwItem->itemSelectionConnection.unblock();
+        }
+    }
+}
+
+
 void ItemTreeWidget::Impl::updateItemSelectionIter(QTreeWidgetItem* twItem, unordered_set<Item*>& selectedItemSet)
 {
     if(auto itwItem = dynamic_cast<ItwItem*>(twItem)){
         auto item = itwItem->item;
         bool on = selectedItemSet.find(item) != selectedItemSet.end();
-        bool isFocused = (item == lastClickedItem);
-        if(on != item->isSelected() || isFocused){
+        bool doUpdate = (on != item->isSelected());
+        bool isCurrent = (item == lastClickedItem) && on;
+        if(!doUpdate){
+            if(isCurrent && (item != projectRootItem->currentItem())){
+                doUpdate = true;
+            }
+        }
+        if(doUpdate){
             itwItem->itemSelectionConnection.block();
-            item->setSelected(on, isFocused);
+            item->setSelected(on, isCurrent);
             itwItem->itemSelectionConnection.unblock();
         }
     }
@@ -1262,9 +1294,9 @@ void ItemTreeWidget::Impl::updateItemSelectionIter(QTreeWidgetItem* twItem, unor
 void ItemTreeWidget::Impl::setItwItemSelected(ItwItem* itwItem, bool on)
 {
     if(on != itwItem->isSelected()){
-        treeWidgetSelectionChangeConnection.block();
+        treeWidgetSelectionChangeConnections.block();
         itwItem->setSelected(on);
-        treeWidgetSelectionChangeConnection.unblock();
+        treeWidgetSelectionChangeConnections.unblock();
     }
 }
 
@@ -1283,6 +1315,15 @@ void ItemTreeWidget::Impl::zoomFontSize(int pointSizeDiff)
     font.setPointSize(font.pointSize() + pointSizeDiff);
     setFont(font);
     fontPointSizeDiff += pointSizeDiff;
+
+    int defaultIconSize = style()->pixelMetric(QStyle::PM_SmallIconSize);
+    QFontInfo info(font);
+    int fontSize = info.pixelSize();
+    if(fontSize > defaultIconSize){
+        setIconSize(QSize(fontSize, fontSize));
+    } else {
+        setIconSize(QSize(defaultIconSize, defaultIconSize));
+    }
 }
 
 

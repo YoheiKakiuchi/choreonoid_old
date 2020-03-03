@@ -15,6 +15,7 @@ class MprProgramItemBase;
 class MprProgram;
 class MprPositionStatement;
 class MenuManager;
+class ToolButton;
 
 class CNOID_EXPORT MprProgramViewBase : public View
 {
@@ -73,14 +74,10 @@ public:
     void setBodySyncMode(BodySyncMode mode);
     BodySyncMode bodySyncMode() const;
 
-    bool updateBodyPositionWithPositionStatement(
-        MprPositionStatement* ps,
-        bool doUpdateCurrentCoordinateFrames = true, bool doNotifyKinematicStateChange = true);
-
     class Impl;
 
 protected:
-    void addEditButton(QWidget* button, int row);
+    void addEditButton(ToolButton* button, int row);
 
     enum InsertionType { BeforeTargetPosition, AfterTargetPosition };
     bool insertStatement(
@@ -91,7 +88,8 @@ protected:
     // This function is called when the current statemet is changed or clicked.
     virtual void onStatementActivated(MprStatement* statement);
     virtual void onStatementDoubleClicked(MprStatement* statement);
-    virtual void onOptionMenuRequest(MenuManager& menuManager);
+
+    virtual void onAttachedMenuRequest(MenuManager& menuManager) override;
     virtual bool storeState(Archive& archive) override;
     virtual bool restoreState(const Archive& archive) override;
 

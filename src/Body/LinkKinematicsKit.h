@@ -1,7 +1,7 @@
 #ifndef CNOID_BODY_LINK_KINEMATICS_KIT_H
 #define CNOID_BODY_LINK_KINEMATICS_KIT_H
 
-#include <cnoid/LinkCoordinateFrameSet>
+#include <cnoid/LinkCoordFrameSetSuite>
 #include <cnoid/CloneableReferenced>
 #include <cnoid/Signal>
 #include <memory>
@@ -17,7 +17,6 @@ class JointPathConfigurationHandler;
 class GeneralId;
 class CoordinateFrame;
 class CoordinateFrameSet;
-class LinkCoordinateFrameSet;
 class InverseKinematics;
 
 class CNOID_EXPORT LinkKinematicsKit : public CloneableReferenced
@@ -28,7 +27,7 @@ public:
 
     void setBaseLink(Link* baseLink);
     void setInversetKinematics(std::shared_ptr<InverseKinematics> ik);
-    void setFrameSets(LinkCoordinateFrameSet* frameSets);
+    void setFrameSetSuite(LinkCoordFrameSetSuite* frameSetSuite);
 
     Body* body();
     Link* link();
@@ -51,36 +50,36 @@ public:
     void resetReferenceRpy();
 
     enum FrameType {
-        WorldFrame = LinkCoordinateFrameSet::WorldFrame,
-        BodyFrame = LinkCoordinateFrameSet::BodyFrame,
-        EndFrame = LinkCoordinateFrameSet::EndFrame
+        WorldFrame = LinkCoordFrameSetSuite::WorldFrame,
+        BodyFrame = LinkCoordFrameSetSuite::BodyFrame,
+        LinkFrame = LinkCoordFrameSetSuite::LinkFrame
     };
 
-    LinkCoordinateFrameSet* frameSets();
+    LinkCoordFrameSetSuite* frameSetSuite();
 
     CoordinateFrameSet* frameSet(int frameType);
     CoordinateFrameSet* worldFrameSet();
     CoordinateFrameSet* bodyFrameSet();
-    CoordinateFrameSet* endFrameSet();
+    CoordinateFrameSet* linkFrameSet();
     
     CoordinateFrame* worldFrame(const GeneralId& id);
     CoordinateFrame* bodyFrame(const GeneralId& id);
-    CoordinateFrame* endFrame(const GeneralId& id);
+    CoordinateFrame* linkFrame(const GeneralId& id);
 
     const GeneralId& currentFrameId(int frameType) const;
     const GeneralId& currentWorldFrameId() const;
     const GeneralId& currentBodyFrameId() const;
-    const GeneralId& currentEndFrameId() const;
+    const GeneralId& currentLinkFrameId() const;
     
     CoordinateFrame* currentFrame(int frameType);
     CoordinateFrame* currentWorldFrame();
     CoordinateFrame* currentBodyFrame();
-    CoordinateFrame* currentEndFrame();
+    CoordinateFrame* currentLinkFrame();
 
     void setCurrentFrame(int frameType, const GeneralId& id);
     void setCurrentWorldFrame(const GeneralId& id);
     void setCurrentBodyFrame(const GeneralId& id);
-    void setCurrentEndFrame(const GeneralId& id);
+    void setCurrentLinkFrame(const GeneralId& id);
 
     int currentBaseFrameType(); // WorldFrame or BodyFrame
     void setCurrentBaseFrameType(int frameType);
