@@ -227,6 +227,7 @@ void invokeFaceControllerPatternFileImportDialog()
     /// \todo The function by the following code shoulde be provided by ItemManger
 
     QFileDialog dialog(MainWindow::instance());
+    dialog.setOptions(QFileDialog::DontUseNativeDialog);
     dialog.setWindowTitle(_("Choose poseset file"));
     dialog.setFileMode(QFileDialog::ExistingFile);
     dialog.setViewMode(QFileDialog::List);
@@ -239,7 +240,7 @@ void invokeFaceControllerPatternFileImportDialog()
     dialog.setNameFilters(filters);
 
     string currentFolder;
-    if(AppConfig::archive()->read("currentFileDialogDirectory", currentFolder)){
+    if(AppConfig::archive()->read("file_dialog_directory", currentFolder)){
         dialog.setDirectory(currentFolder.c_str());
     }
 
@@ -265,7 +266,7 @@ void invokeFaceControllerPatternFileImportDialog()
             }
             QStringList poseseqFiles = dialog.selectedFiles();
             AppConfig::archive()->write(
-                "currentFileDialogDirectory",
+                "file_dialog_directory",
                 dialog.directory().absolutePath().toStdString(),
                 DOUBLE_QUOTED);
 

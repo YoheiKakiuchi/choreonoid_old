@@ -138,6 +138,7 @@ AISTSimulatorItem::AISTSimulatorItem()
 {
     impl = new AISTSimulatorItemImpl(this);
     setName("AISTSimulator");
+    setAllLinkPositionOutputMode(false);
 }
 
 
@@ -409,7 +410,7 @@ bool AISTSimulatorItemImpl::initializeSimulation(const std::vector<SimulationBod
     cfs.setGaussSeidelMaxNumIterations(maxNumIterations);
     cfs.setContactDepthCorrection(contactCorrectionDepth.value(), contactCorrectionVelocityRatio.value());
     
-    self->addPreDynamicsFunction([&](){ clearExternalForces(); });
+    self->addPostDynamicsFunction([&](){ clearExternalForces(); });
 
     world.clearBodies();
     bodyIndexMap.clear();
@@ -741,23 +742,3 @@ bool AISTSimulatorItemImpl::restore(const Archive& archive)
     archive.read("oldAccelSensorMode", isOldAccelSensorMode);
     return true;
 }
-
-#ifdef ENABLE_SIMULATION_PROFILING
-void AISTSimulatorItem::getProfilingNames(vector<string>& profilingNames)
-{
-    profilingNames.push_back("Collision detection time");
-    profilingNames.push_back("Constraint force calculation time");
-    profilingNames.push_back("Forward dynamics calculation time");
-    profilingNames.push_back("Customizer calculation time");
-}
-
-
-void AISTSimulatorItem::getProfilingTimes(vector<double>& profilingToimes)
-{
-    double collisionTime = impl->world.constraintForceSolver.getCollisionTime();
-    profilingToimes.push_back(collisionTime);
-    profilingToimes.push_back(impl->world.forceSolveTime - collisionTime);
-    profilingToimes.push_back(impl->world.forwardDynamicsTime);
-    profilingToimes.push_back(impl->world.customizerTime);
-}
-#endif

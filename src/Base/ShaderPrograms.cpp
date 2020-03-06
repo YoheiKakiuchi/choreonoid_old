@@ -125,6 +125,7 @@ public:
     Vector3f emissionColor;
     float shininess;
     float alpha;
+    float minTransparency;
 
     GLint diffuseColorLocation;
     GLint ambientColorLocation;
@@ -209,6 +210,7 @@ public:
 ShaderProgram::ShaderProgram(const char* vertexShader, const char* fragmentShader)
 {
     glslProgram_ = new GLSLProgram;
+    capabilities_ = NoCapability;
     impl = new ShaderProgramImpl;
     impl->vertexShader = vertexShader;
     impl->fragmentShader = fragmentShader;
@@ -402,7 +404,7 @@ void SolidColorProgram::setPointSize(float s)
 LightingProgram::LightingProgram(const char* vertexShader, const char* fragmentShader)
     : ShaderProgram(vertexShader, fragmentShader)
 {
-
+    setCapability(Lighting);
 }
 
 
@@ -650,6 +652,7 @@ void BasicLightingProgram::setFog(const SgFog* fog)
 MaterialLightingProgram::MaterialLightingProgram(const char* vertexShader, const char* fragmentShader)
     : BasicLightingProgram(vertexShader, fragmentShader)
 {
+    setCapability(Transparency);
     impl = new MaterialLightingProgramImpl;
 }
 
@@ -670,6 +673,8 @@ void MaterialLightingProgram::initialize()
 void MaterialLightingProgramImpl::initialize(GLSLProgram& glsl)
 {
     stateFlag.resize(NUM_STATE_FLAGS, false);
+
+    minTransparency = 0.0f;
 
     diffuseColorLocation = glsl.getUniformLocation("diffuseColor");
     ambientColorLocation = glsl.getUniformLocation("ambientColor");
@@ -745,7 +750,8 @@ void MaterialLightingProgramImpl::setMaterial(const SgMaterial* material)
         stateFlag[SHININESS] = true;
     }
 
-    float a = 1.0 - material->transparency();
+    float transparency = std::max(material->transparency(), minTransparency);
+    float a = 1.0 - transparency;
     if(!stateFlag[ALPHA] || alpha != a){
         glUniform1f(alphaLocation, a);
         alpha = a;
@@ -769,6 +775,12 @@ void MaterialLightingProgram::setTextureEnabled(bool on)
         glUniform1i(impl->isTextureEnabledLocation, on);
         impl->isTextureEnabled = on;
     }
+}
+
+
+void MaterialLightingProgram::setMinimumTransparency(float t)
+{
+    impl->minTransparency = t;
 }
 
 
