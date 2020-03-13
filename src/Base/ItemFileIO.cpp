@@ -1,19 +1,15 @@
 #include "ItemFileIO.h"
 #include "ItemFileIOImpl.h"
 #include "ItemManager.h"
-#include "RootItem.h"
-#include "MainWindow.h"
 #include "MessageView.h"
-#include "AppConfig.h"
 #include <cnoid/NullOut>
 #include <cnoid/FileUtil>
-#include <cnoid/ExecutablePath>
+#include <cnoid/ValueTree>
 #include <cnoid/ParametricPathProcessor>
-#include <QFileDialog>
-#include <QBoxLayout>
-#include <QStyle>
 #include <fmt/format.h>
 #include "gettext.h"
+
+#include <iostream>
 
 using namespace std;
 using namespace cnoid;
@@ -92,9 +88,31 @@ void ItemFileIO::setApi(int api)
     impl->api = api;
 }
 
-void ItemFileIO::setCaption(const std::string& name)
+
+void ItemFileIO::setCaption(const std::string& caption)
 {
-    impl->caption = name;
+    impl->caption = caption;
+}
+
+
+const std::string& ItemFileIO::caption() const
+{
+    return impl->caption;
+}
+
+
+void ItemFileIO::setFileTypeCaption(const std::string& caption)
+{
+    impl->fileTypeCaption = caption;
+}
+
+
+const std::string& ItemFileIO::fileTypeCaption() const
+{
+    if(!impl->fileTypeCaption.empty()){
+        return impl->fileTypeCaption;
+    }
+    return impl->caption;
 }
 
 
@@ -106,15 +124,14 @@ void ItemFileIO::addFormatIdAlias(const std::string& formatId)
 
 void ItemFileIO::setExtension(const std::string& extension)
 {
+    impl->extensions.clear();
     impl->extensions.push_back(extension);
 }
 
 
 void ItemFileIO::setExtensions(const std::vector<std::string>& extensions)
 {
-    for(auto& ext : extensions){
-        impl->extensions.push_back(ext);
-    }
+    impl->extensions = extensions;
 }
 
 
@@ -123,7 +140,52 @@ void ItemFileIO::setExtensionFunction(std::function<std::string()> func)
     impl->extensionFunction = func;
 }
 
-    
+
+std::vector<std::string> ItemFileIO::extensions() const
+{
+    if(impl->extensionFunction){
+        return impl->separateExtensions(impl->extensionFunction());
+    }    
+    return impl->extensions;
+}
+
+
+std::vector<std::string> ItemFileIO::Impl::separateExtensions(const std::string& multiExtString)
+{
+    std::vector<std::string> extensions;
+    const char* str = multiExtString.c_str();
+    do {
+        const char* begin = str;
+        while(*str != ';' && *str) ++str;
+        extensions.push_back(string(begin, str));
+    } while(0 != *str++);
+
+    return extensions;
+}
+
+
+QString ItemFileIO::Impl::makeNameFilter
+(const std::string& caption, const std::vector<std::string>& extensions, bool isAnyEnabled)
+{
+    QString filter(caption.c_str());
+
+    if(!extensions.empty()){
+        QString prefix = " (";
+        for(auto& ext : extensions){
+            filter += prefix;
+            filter += "*.";
+            filter += ext.c_str();
+            prefix = " ";
+        }
+        filter += ")";
+    } else if(isAnyEnabled){
+        filter += " (*)";
+    }
+
+    return filter;
+}
+
+
 void ItemFileIO::setInterfaceLevel(InterfaceLevel level)
 {
     impl->interfaceLevel = level;
@@ -150,113 +212,6 @@ bool ItemFileIO::loadItem
     return impl->loadItem(Direct, item, filename, parentItem, doAddition, nextItem, options);
 }
 
-
-ItemList<Item> ItemFileIO::loadItemsWithDialog
-(Item* parentItem, bool doAddition, Item* nextItem)
-{
-    ItemList<Item> loadedItems;
-
-    bool isSingleton = false;
-    ItemPtr item = ItemManager::singletonInstance(this);
-    if(item){
-        isSingleton = true;
-        if(item->parentItem()){
-            showWarningDialog(
-                format(_("The singleton instance of {} has already been loaded."),
-                       impl->caption));
-            return loadedItems;
-        }
-    }
-
-    QDialog dialog(MainWindow::instance());
-    dialog.setWindowTitle(QString(_("Load %1")).arg(impl->caption.c_str()));
-    dialog.setSizeGripEnabled(true);
-    auto vbox = new QVBoxLayout;
-    vbox->setSpacing(0);
-    dialog.setLayout(vbox);
-    
-    QFileDialog fileDialog(&dialog);
-    fileDialog.setWindowFlags(fileDialog.windowFlags() & ~Qt::Dialog);
-    fileDialog.setOption(QFileDialog::DontUseNativeDialog);
-    fileDialog.setSizeGripEnabled(false);
-    fileDialog.setViewMode(QFileDialog::List);
-    fileDialog.setLabelText(QFileDialog::Accept, _("Open"));
-    fileDialog.setLabelText(QFileDialog::Reject, _("Cancel"));
-    fileDialog.setDirectory(AppConfig::archive()->get
-                        ("file_dialog_directory", shareDirectory()).c_str());
-
-    QObject::connect(&fileDialog, SIGNAL(finished(int)), &dialog, SLOT(done(int)));
-
-    vbox->addWidget(&fileDialog);
-
-    QWidget* optionPanel = nullptr;
-    if(impl->api & ItemFileIO::Options){
-        resetOptions();
-        if(impl->api & ItemFileIO::OptionPanelForLoading){
-            optionPanel = getOptionPanelForLoading();
-            if(optionPanel){
-                auto hbox = new QHBoxLayout;
-                auto style = dialog.style();
-                int left = style->pixelMetric(QStyle::PM_LayoutLeftMargin);
-                int right = style->pixelMetric(QStyle::PM_LayoutRightMargin);
-                int bottom = style->pixelMetric(QStyle::PM_LayoutBottomMargin);
-                hbox->setContentsMargins(left, 0, right, bottom);
-                hbox->addWidget(optionPanel);
-                hbox->addStretch();
-                vbox->addLayout(hbox);
-            }
-        }
-    }
-
-    QStringList filters;
-    if(!impl->extensions.empty()){
-        filters = impl->makeExtensionFilterList(impl->caption, impl->extensions);
-    } else if(impl->extensionFunction){
-        filters = impl->makeExtensionFilterList(
-            impl->caption, impl->separateExtensions(impl->extensionFunction()));
-    }
-    fileDialog.setNameFilters(filters);
-
-    if(isSingleton){
-        fileDialog.setFileMode(QFileDialog::ExistingFile);
-    } else {
-        fileDialog.setFileMode(QFileDialog::ExistingFiles);
-    }
-
-    if(dialog.exec() == QDialog::Accepted){
-        Mapping* config = AppConfig::archive();
-        config->writePath(
-            "file_dialog_directory",
-            fileDialog.directory().absolutePath().toStdString());
-                  
-        QStringList filenames = fileDialog.selectedFiles();
-
-        if(!parentItem){
-            parentItem = RootItem::instance();
-        }
-
-        if(optionPanel){
-            fetchOptionPanelForLoading();
-        }
-        
-        for(int i=0; i < filenames.size(); ++i){
-            if(!isSingleton){
-                item = createItem();
-            }
-            string filename = getNativePathString(filesystem::path(filenames[i].toStdString()));
-            if(impl->loadItem(Dialog, item, filename, parentItem, doAddition, nextItem, nullptr)){
-                loadedItems.push_back(item);
-            }
-        }
-    }
-
-    if(optionPanel){
-        optionPanel->setParent(nullptr);
-    }
-
-    return loadedItems;
-}
-    
 
 bool ItemFileIO::Impl::loadItem
 (InvocationType invocationType, Item* item, const std::string& filename,
@@ -296,6 +251,7 @@ bool ItemFileIO::Impl::loadItem
         this->parentItem = nullptr;
     }
 
+    actuallyLoadedItem = item;
     bool loaded = self->load(item, actualFilename);
     os->flush();
 
@@ -305,12 +261,15 @@ bool ItemFileIO::Impl::loadItem
         if(item->name().empty()){
             item->setName(filesystem::path(filename).stem().string());
         }
+        if(actuallyLoadedItem != item && actuallyLoadedItem->name().empty()){
+            actuallyLoadedItem->setName(item->name());
+        }
         MappingPtr optionArchive;
         if(api & ItemFileIO::Options){
             optionArchive = new Mapping;
             self->storeOptions(optionArchive);
         }
-        item->updateFileInformation(actualFilename, formatId, optionArchive);
+        actuallyLoadedItem->updateFileInformation(actualFilename, formatId, optionArchive);
 
         if(doAddition && parentItem){
             parentItem->insertChildItem(item, nextItem, true);
@@ -323,6 +282,12 @@ bool ItemFileIO::Impl::loadItem
     this->parentItem = nullptr;
 
     return loaded;
+}
+
+
+void ItemFileIO::setActuallyLoadedItem(Item* item)
+{
+    impl->actuallyLoadedItem = item;
 }
 
 
@@ -397,6 +362,18 @@ Item* ItemFileIO::parentItem()
 ItemFileIO::InvocationType ItemFileIO::invocationType() const
 {
     return impl->invocationType;
+}
+
+
+bool ItemFileIO::isRegisteredForSingletonItem() const
+{
+    return impl->isRegisteredForSingletonItem();
+}
+
+
+Item* ItemFileIO::findSingletonItemInstance() const
+{
+    return impl->findSingletonItemInstance();
 }
 
 
@@ -485,60 +462,4 @@ void ItemFileIOExtenderBase::fetchSaveOptionPanel()
 bool ItemFileIOExtenderBase::save(Item* item, const std::string& filename)
 {
     return baseFileIO ? baseFileIO->save(item, filename) : false;
-}
-
-
-std::vector<std::string> ItemFileIO::Impl::separateExtensions(const std::string& multiExtString)
-{
-    std::vector<std::string> extensions;
-    const char* str = multiExtString.c_str();
-    do {
-        const char* begin = str;
-        while(*str != ';' && *str) ++str;
-        extensions.push_back(string(begin, str));
-    } while(0 != *str++);
-
-    return extensions;
-}
-
-
-QString ItemFileIO::Impl::makeExtensionFilter
-(const std::string& caption, const std::vector<std::string>& extensions, bool isAnyEnabled)
-{
-    QString filter(caption.c_str());
-    if(!extensions.empty()){
-        QString prefix = " (";
-        for(auto& ext : extensions){
-            filter += prefix;
-            filter += "*.";
-            filter += ext.c_str();
-            prefix = " ";
-        }
-        filter += ")";
-    } else if(isAnyEnabled){
-        filter += " (*)";
-    }
-    return filter;
-}
-
-
-QStringList ItemFileIO::Impl::makeExtensionFilterList
-(const std::string& caption, const std::vector<std::string>& extensions)
-{
-    QStringList filters;
-    QString filter = makeExtensionFilter(caption, extensions);
-    if(!filter.isEmpty()){
-        filters << filter;
-    }
-    filters << _("Any files (*)");
-    return filters;
-}
-
-
-QString ItemFileIO::Impl::makeExtensionFilterString
-(const std::string& caption, const std::vector<std::string>& extensions)
-{
-    QString filters = makeExtensionFilter(caption, extensions);
-    filters += _(";;Any files (*)");
-    return filters;
 }

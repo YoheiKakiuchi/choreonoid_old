@@ -182,12 +182,15 @@ void SceneItem::doPutProperties(PutPropertyFunction& putProperty)
 
 bool SceneItem::store(Archive& archive)
 {
-    if(!filePath().empty()){
-        archive.writeRelocatablePath("file", filePath());
-        archive.write("format", fileFormat());
+    if(archive.writeFileInformation(this)){
         write(archive, "translation", topNode_->translation());
-        write(archive, "rotation", AngleAxis(topNode_->rotation()));
-        archive.write("lightweightRendering", isLightweightRenderingEnabled_);
+
+        writeDegreeAngleAxis(archive, "rotation", AngleAxis(topNode_->rotation()));
+        // The following element is used to distinguish the value type from the old one using radian.
+        // The old format is deprecated, and writing the following element should be omitted in the future.
+        archive.write("angle_unit", "degree");
+        
+        archive.write("lightweight_rendering", isLightweightRenderingEnabled_);
     }
     return true;
 }
@@ -195,22 +198,23 @@ bool SceneItem::store(Archive& archive)
 
 bool SceneItem::restore(const Archive& archive)
 {
-    std::string filename, formatId;
-    if(archive.readRelocatablePath("file", filename) && archive.read("format", formatId)){
+    if(archive.loadFileTo(this)){
         Vector3 translation;
         if(read(archive, "translation", translation)){
             topNode_->setTranslation(translation);
         }
         AngleAxis rot;
-        if(read(archive, "rotation", rot)){
+        string unit;
+        bool hasRot = false;
+        if(archive.read("angle_unit", unit) && unit == "degree"){
+            hasRot = readDegreeAngleAxis(archive, "rotation", rot);
+        } else { // for the backward compatibility
+            hasRot = readAngleAxis(archive, "rotation", rot);
+        }
+        if(hasRot){
             topNode_->setRotation(rot);
         }
-
-        archive.read("lightweightRendering", isLightweightRenderingEnabled_);
-        
-        if(load(filename, archive.currentParentItem(), formatId)){
-            return true;
-        }
+        archive.read("lightweight_rendering", isLightweightRenderingEnabled_);
     }
     return false;
 }

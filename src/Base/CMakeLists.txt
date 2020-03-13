@@ -20,6 +20,7 @@ set(sources
   ItemManager.cpp
   ItemClassRegistry.cpp
   ItemFileIO.cpp
+  ItemFileDialog.cpp
   Item.cpp
   ItemAddon.cpp
   LocatableItem.cpp
@@ -111,6 +112,7 @@ set(sources
   SceneView.cpp
   SceneBar.cpp
   SceneItem.cpp
+  SceneItemFileIO.cpp
   PointSetItem.cpp
   MultiPointSetItem.cpp
   MovieRecorder.cpp
@@ -211,6 +213,7 @@ set(headers
   ItemManager.h
   ItemClassRegistry.h
   ItemFileIO.h
+  ItemFileDialog.h
   PolymorphicItemFunctionSet.h
   AppConfig.h
   AppUtil.h
@@ -232,6 +235,7 @@ set(headers
   GLSLSceneRenderer.h
   SceneView.h
   SceneItem.h
+  SceneItemFileIO.h
   PointSetItem.h
   MultiPointSetItem.h
   TextEditView.h

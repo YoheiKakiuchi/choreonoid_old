@@ -15,6 +15,7 @@ class Item;
 class ItemManager;
 class ItemManagerImpl;
 class ItemFileIOExtenderBase;
+class ItemFileDialog;
 class Mapping;
 
 class CNOID_EXPORT ItemFileIO : public Referenced
@@ -42,16 +43,25 @@ public:
 
     int api() const;
     void setApi(int api);
-    void setCaption(const std::string& name);
+    void setCaption(const std::string& caption);
+    const std::string& caption() const;
+    void setFileTypeCaption(const std::string& caption);
+    const std::string& fileTypeCaption() const;
     void addFormatIdAlias(const std::string& formatId);
+
     void setExtension(const std::string& extension);
     void setExtensions(const std::vector<std::string>& extensions);
+
     // deprecated. This is internally used for specifing SceneItem's extensions dynamically.
     // The dynamic extension specification should be achieved by a signal to update the
     // extensions and usual the registerExtensions function.
     void setExtensionFunction(std::function<std::string()> func);
-    void setInterfaceLevel(InterfaceLevel level);
 
+    std::vector<std::string> extensions() const;
+    
+    void setInterfaceLevel(InterfaceLevel level);
+    int interfaceLevel() const;
+    
     Item* loadItem(
         const std::string& filename,
         Item* parentItem = nullptr, bool doAddition = true, Item* nextItem = nullptr,
@@ -60,20 +70,20 @@ public:
         Item* item, const std::string& filename,
         Item* parentItem = nullptr, bool doAddition = true, Item* nextItem = nullptr,
         const Mapping* options = nullptr);
-    ItemList<Item> loadItemsWithDialog(
-        Item* parentItem = nullptr, bool doAddition = true, Item* nextItem = nullptr);
 
     // Pending
     //bool saveItem(Item* item, const std::string& filename);
 
-protected:
     virtual Item* createItem() = 0;
+
     // Load API
     virtual bool load(Item* item, const std::string& filename);
+    
     // Options API
     virtual void resetOptions();
     virtual void storeOptions(Mapping* archive);
     virtual bool restoreOptions(const Mapping* archive);
+    
     // OptionPanelForLoading API
     virtual QWidget* getOptionPanelForLoading();
     virtual void fetchOptionPanelForLoading();
@@ -92,16 +102,27 @@ protected:
     Item* parentItem();
     InvocationType invocationType() const;
 
+    bool isRegisteredForSingletonItem() const;
+    Item* findSingletonItemInstance() const;
+
+protected:
     std::ostream& os();
     void putWarning(const std::string& message);
     void putError(const std::string& message);
+
+    /**
+       When the file is loaded as a composite item tree and the item
+       that actually loads the file is different from the top item,
+       the following function must be called with the corresponding item.
+    */
+    void setActuallyLoadedItem(Item* item);
     
 private:
     Impl* impl;
-
     friend class ItemManager;
     friend class ItemManagerImpl;
     friend class ItemFileIOExtenderBase;
+    friend class ItemFileDialog;
 };
 
 typedef ref_ptr<ItemFileIO> ItemFileIOPtr;
@@ -178,10 +199,6 @@ public:
         const Mapping* options = nullptr) {
         return static_cast<ItemType*>(
             ItemFileIO::loadItem(filename, parentItem, doAddition, nextItem, options));
-    }
-    ItemList<ItemType> loadItemsWithDialog(
-        Item* parentItem = nullptr, bool doAddition = true, Item* nextItem = nullptr) {
-        return ItemFileIO::loadItemsWithDialog(parentItem, doAddition, nextItem);
     }
     
 protected:

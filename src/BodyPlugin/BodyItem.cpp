@@ -4,6 +4,7 @@
 */
 
 #include "BodyItem.h"
+#include "LinkShapeItem.h"
 #include "WorldItem.h"
 #include "KinematicsBar.h"
 #include "EditableSceneBody.h"
@@ -20,8 +21,8 @@
 #include <cnoid/MessageView>
 #include <cnoid/TimeBar>
 #include <cnoid/ItemManager>
-#include <cnoid/ItemFileIO>
-#include <cnoid/ComboBox>
+#include <cnoid/ItemFileIO>  
+#include <cnoid/SceneItemFileIO>
 #include <cnoid/OptionManager>
 #include <cnoid/MenuManager>
 #include <cnoid/PutPropertyFunction>
@@ -51,6 +52,9 @@ using fmt::format;
 namespace {
 
 const bool TRACE_FUNCTIONS = false;
+
+ItemFileIO* bodyFileIO;
+ItemFileIO* meshFileIO;
 
 BodyState kinematicStateCopy;
 
@@ -183,112 +187,23 @@ public:
 
 namespace {
 
-class BodyItemFileIO : public ItemFileIOBase<BodyItem>
+class BodyFileIO : public ItemFileIOBase<BodyItem>
 {
     BodyLoader bodyLoader;
-    Selection meshLengthUnitHint;
-    Selection meshUpperAxisHint;
-    QWidget* optionPanel;
-    ComboBox* unitCombo;
-    ComboBox* axisCombo;
     
 public:
-    BodyItemFileIO()
-        : ItemFileIOBase<BodyItem>(
-            "CHOREONOID-BODY",
-            Load | Options | OptionPanelForLoading),
-          meshLengthUnitHint(BodyLoader::NumLengthUnitIds),
-          meshUpperAxisHint(BodyLoader::NumUpperAxisIds, CNOID_GETTEXT_DOMAIN_NAME)
+    BodyFileIO()
+        : ItemFileIOBase<BodyItem>("CHOREONOID-BODY", Load)
     {
         setCaption(_("Body"));
-        setExtensions({ "body", "scen", "wrl", "yaml", "yml", "dae", "stl" });
+        setExtensions({ "body", "yaml", "yml", "wrl" });
         addFormatIdAlias("OpenHRP-VRML-MODEL");
 
         bodyLoader.setMessageSink(os());
-        
-        meshLengthUnitHint.setSymbol(BodyLoader::Meter, "meter");
-        meshLengthUnitHint.setSymbol(BodyLoader::Millimeter, "millimeter");
-        meshLengthUnitHint.setSymbol(BodyLoader::Inch, "inch");
-
-        meshUpperAxisHint.setSymbol(BodyLoader::Z, "Z");
-        meshUpperAxisHint.setSymbol(BodyLoader::Y, "Y");
-
-        optionPanel = nullptr;
-        unitCombo = nullptr;
-        axisCombo = nullptr;
     }
 
-    ~BodyItemFileIO()
-    {
-        if(optionPanel){
-            delete optionPanel;
-        }
-    }
-
-    virtual void resetOptions() override
-    {
-        meshLengthUnitHint.select(BodyLoader::Meter);
-        meshUpperAxisHint.select(BodyLoader::Z);
-    }
-        
-    virtual bool restoreOptions(const Mapping* archive) override
-    {
-        string value;
-        if(archive->read("meshLengthUnitHint", value)){
-            meshLengthUnitHint.select(value);
-        }
-        if(archive->read("meshUpperAxisHint", value)){
-            meshUpperAxisHint.select(value);
-        }
-        return true;
-    }
-        
-    virtual void storeOptions(Mapping* archive) override
-    {
-        if(meshLengthUnitHint != BodyLoader::Meter){
-            archive->write("meshLengthUnitHint", meshLengthUnitHint.selectedSymbol());
-        }
-        if(meshUpperAxisHint != BodyLoader::Z){
-            archive->write("meshUpperAxisHint", meshUpperAxisHint.selectedSymbol());
-        }
-    }
-        
-    virtual QWidget* getOptionPanelForLoading() override
-    {
-        if(!optionPanel){
-            optionPanel = new QWidget;
-            auto hbox = new QHBoxLayout;
-            hbox->setContentsMargins(0, 0, 0, 0);
-            optionPanel->setLayout(hbox);
-            hbox->addWidget(new QLabel(_("[ Mesh import hints ]")));
-            hbox->addWidget(new QLabel(_("Unit:")));
-            unitCombo = new ComboBox;
-            unitCombo->addItem(_("Meter"));
-            unitCombo->addItem(_("Millimeter"));
-            unitCombo->addItem(_("Inch"));
-            hbox->addWidget(unitCombo);
-            hbox->addWidget(new QLabel(_("Upper axis:")));
-            axisCombo = new ComboBox;
-            for(int i=0; i < BodyLoader::NumUpperAxisIds; ++i){
-                axisCombo->addItem(meshUpperAxisHint.label(i));
-            }
-            hbox->addWidget(axisCombo);
-        }
-        return optionPanel;
-    }
-        
-    virtual void fetchOptionPanelForLoading() override
-    {
-        meshLengthUnitHint.select(unitCombo->currentIndex());
-        meshUpperAxisHint.select(axisCombo->currentIndex());
-    }
-    
     virtual bool load(BodyItem* item, const std::string& filename) override
     {
-        bodyLoader.setMeshImportHint(
-            (BodyLoader::LengthUnit)meshLengthUnitHint.which(),
-            (BodyLoader::UpperAxis)meshUpperAxisHint.which());
-        
         BodyPtr newBody = new Body;
         if(!bodyLoader.load(newBody, filename)){
             return false;
@@ -299,6 +214,44 @@ public:
             newBody->setName(item->name());
         }
         item->setBody(newBody);
+
+        auto itype = invocationType();
+        if(itype == Dialog || itype == DragAndDrop){
+            item->setChecked(true);
+        }
+        
+        return true;
+    }
+};
+
+class SceneFileIO : public SceneItemFileIO
+{
+public:
+    SceneFileIO()
+    {
+        setCaption(_("Body"));
+        setFileTypeCaption(_("Scene / Mesh"));
+    }
+
+    virtual Item* createItem() override
+    {
+        return new BodyItem;
+    }
+
+    virtual bool load(Item* item, const std::string& filename) override
+    {
+        SgNode* shape = loadScene(filename);
+        if(!shape){
+            return false;
+        }
+
+        LinkShapeItem* shapeItem = new LinkShapeItem;
+        shapeItem->setAttribute(Item::Attached);
+        shapeItem->setShape(shape);
+        setActuallyLoadedItem(shapeItem);
+
+        auto bodyItem = static_cast<BodyItem*>(item);
+        bodyItem->addChildItem(shapeItem);
 
         auto itype = invocationType();
         if(itype == Dialog || itype == DragAndDrop){
@@ -329,19 +282,28 @@ static void onSigOptionsParsed(boost::program_options::variables_map& variables)
 
 void BodyItem::initializeClass(ExtensionManager* ext)
 {
-    static bool initialized = false;
+    ItemManager& im = ext->itemManager();
+    im.registerClass<BodyItem>(N_("BodyItem"));
+    ::bodyFileIO = new BodyFileIO;
+    im.registerFileIO<BodyItem>(::bodyFileIO);
+    ::meshFileIO = new SceneFileIO;
+    im.registerFileIO<BodyItem>(::meshFileIO);
 
-    if(!initialized){
-        ItemManager& im = ext->itemManager();
-        im.registerClass<BodyItem>(N_("BodyItem"));
-        im.registerFileIO<BodyItem>(new BodyItemFileIO);
+    OptionManager& om = ext->optionManager();
+    om.addOption("body", boost::program_options::value< vector<string> >(), "load a body file");
+    om.sigOptionsParsed().connect(onSigOptionsParsed);
+}
 
-        OptionManager& om = ext->optionManager();
-        om.addOption("body", boost::program_options::value< vector<string> >(), "load a body file");
-        om.sigOptionsParsed().connect(onSigOptionsParsed);
 
-        initialized = true;
-    }
+ItemFileIO* BodyItem::bodyFileIO()
+{
+    return ::bodyFileIO;
+}
+
+
+ItemFileIO* BodyItem::meshFileIO()
+{
+    return ::meshFileIO;
 }
 
 
@@ -355,6 +317,7 @@ BodyItem::BodyItem()
 BodyItem::Impl::Impl(BodyItem* self)
     : Impl(self, new Body)
 {
+    body->rootLink()->setName("Root");
     isCollisionDetectionEnabled = true;
     isSelfCollisionDetectionEnabled = false;
 }
@@ -471,8 +434,12 @@ void BodyItem::Impl::setBody(Body* body_)
 
 void BodyItem::setName(const std::string& name)
 {
-    if(impl->body){
-        impl->body->setName(name);
+    auto body = impl->body;
+    if(body){
+        body->setName(name);
+        if(body->modelName().empty()){
+            body->setModelName(name);
+        }
     }
     Item::setName(name);
 }
@@ -1604,11 +1571,7 @@ bool BodyItem::Impl::store(Archive& archive)
 {
     archive.setDoubleFormat("% .6f");
 
-    archive.writeRelocatablePath("modelFile", self->filePath());
-    archive.write("format", self->fileFormat());
-    if(auto fileOptions = self->fileOptions()){
-        archive.insert(fileOptions);
-    }
+    archive.writeFileInformation(self);
 
     if(currentBaseLink){
         archive.write("currentBaseLink", currentBaseLink->name(), DOUBLE_QUOTED);
@@ -1697,8 +1660,12 @@ bool BodyItem::restore(const Archive& archive)
 
 bool BodyItem::Impl::restore(const Archive& archive)
 {
-    if(!archive.loadItemFile(self, "modelFile", "format")){
-        return false;
+    string filename;
+    if(archive.read("file", filename)){
+        archive.loadFileTo(self);
+    } else {
+        // for the backward compatibiliy
+        archive.loadItemFile(self, "modelFile", "format");
     }
 
     Vector3 p = Vector3::Zero();
@@ -1780,8 +1747,9 @@ bool BodyItem::Impl::restore(const Archive& archive)
 
     body->calcForwardKinematics();
     string baseLinkName;
-    archive.read("currentBaseLink", baseLinkName);
-    setCurrentBaseLink(body->link(baseLinkName));
+    if(archive.read("currentBaseLink", baseLinkName)){
+        setCurrentBaseLink(body->link(baseLinkName));
+    }
 
     bool on;
     if(archive.read("staticModel", on)){
