@@ -8,6 +8,7 @@
 
 #include "JoystickInterface.h"
 #include "Signal.h"
+#include <string>
 #include "exportdecl.h"
 
 namespace cnoid {
@@ -21,8 +22,10 @@ public:
     Joystick(const char* device);
     virtual ~Joystick();
 
+    std::string device() const;
     int fileDescriptor() const;
 
+    bool makeReady();
     bool isReady() const;
     const char* errorMessage() const;
 
