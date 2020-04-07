@@ -3,7 +3,7 @@
 #include <cnoid/Body>
 #include <cnoid/LinkKinematicsKit>
 #include <cnoid/JointPath>
-#include <cnoid/JointPathConfigurationHandler>
+#include <cnoid/JointSpaceConfigurationHandler>
 #include <cnoid/CoordinateFrame>
 #include <cnoid/EigenUtil>
 #include <cnoid/EigenArchive>
@@ -205,7 +205,7 @@ bool MprIkPosition::setCurrentPosition_(LinkKinematicsKit* kinematicsKit, bool u
 
     referenceRpy_ = rpyFromRot(T.linear(), kinematicsKit->referenceRpy());
 
-    configuration_ = kinematicsKit->currentConfiguration();
+    configuration_ = kinematicsKit->currentConfigurationType();
 
     //! \todo set phase here
 
@@ -218,10 +218,6 @@ bool MprIkPosition::apply(LinkKinematicsKit* kinematicsKit) const
     auto jointPath = kinematicsKit->jointPath();
     if(!jointPath){
         return false;
-    }
-
-    if(auto handler = kinematicsKit->configurationHandler()){
-        handler->setPreferredConfiguration(configuration_);
     }
 
     Position T_base;
@@ -241,7 +237,18 @@ bool MprIkPosition::apply(LinkKinematicsKit* kinematicsKit) const
 
     kinematicsKit->setReferenceRpy(rpyFromRot(T.linear(), referenceRpy_));
 
-    return jointPath->calcInverseKinematics(T_end);
+    auto configHandler = kinematicsKit->configurationHandler();
+    if(configHandler){
+        configHandler->setPreferredConfigurationType(configuration_);
+    }
+
+    bool solved = jointPath->calcInverseKinematics(T_end);
+
+    if(configHandler){
+        configHandler->resetPreferredConfigurationType();
+    }
+    
+    return solved;
 }
 
 
@@ -284,8 +291,11 @@ bool MprIkPosition::read(const Mapping& archive)
     }
 
     configuration_ = 0;
-    if(!archive.read("config_index", configuration_)){
-        archive.read("configIndex", configuration_); // old
+    if(!archive.read("config_id", configuration_)){
+        // old
+        if(!archive.read("config_index", configuration_)){
+            archive.read("configIndex", configuration_); // old
+        }
     }
 
     auto& phaseNodes = *archive.findListing("phases");
@@ -325,7 +335,7 @@ bool MprIkPosition::write(Mapping& archive) const
     baseFrameId_.write(archive, "base_frame");
     toolFrameId_.write(archive, "tool_frame");
 
-    archive.write("config_index", configuration_);
+    archive.write("config_id", configuration_);
     auto& phaseNodes = *archive.createFlowStyleListing("phases");
     for(auto& phase : phase_){
         phaseNodes.append(phase);
