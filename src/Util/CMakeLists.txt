@@ -12,7 +12,7 @@ set(sources
   ConnectionSet.cpp
   FileUtil.cpp
   ExecutablePath.cpp
-  ParametricPathProcessor.cpp
+  FilePathVariableProcessor.cpp
   GettextUtil.cpp
   UTF8.cpp
   NullOut.cpp
@@ -58,6 +58,7 @@ set(sources
   MeshGenerator.cpp
   MeshFilter.cpp
   MeshExtractor.cpp
+  SceneNodeExtractor.cpp
   PolygonMeshTriangulator.cpp
   Image.cpp
   ImageIO.cpp
@@ -105,7 +106,7 @@ set(headers
   TimeMeasure.h
   FileUtil.h
   ExecutablePath.h
-  ParametricPathProcessor.h
+  FilePathVariableProcessor.h
   GettextUtil.h
   UTF8.h
   NullOut.h
@@ -161,6 +162,7 @@ set(headers
   MeshGenerator.h
   MeshFilter.h
   MeshExtractor.h
+  SceneNodeExtractor.h
   Triangulator.h
   PolygonMeshTriangulator.h
   PolyhedralRegion.h

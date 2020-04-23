@@ -22,6 +22,7 @@
 #include <cnoid/FileUtil>
 #include <cnoid/ExecutablePath>
 #include <QCoreApplication>
+#include <QMessageBox>
 #include <string>
 #include <vector>
 #include <fmt/format.h>
@@ -72,6 +73,8 @@ public:
     void onInputFileOptionsParsed(std::vector<std::string>& inputFiles);
     void openDialogToLoadProject();
     void openDialogToSaveProject();
+    std::string getSaveFilename(FileDialog& dialog);
+    bool onSaveDialogAboutToFinished(FileDialog& dialog, int result);
 
     void onPerspectiveCheckToggled(bool on);
         
@@ -481,7 +484,7 @@ void ProjectManager::saveProject(const string& filename, Item* item)
 void ProjectManager::Impl::saveProject(const string& filename, Item* item)
 {
     YAMLWriter writer(filename);
-    if(!writer.isOpen()){
+    if(!writer.isFileOpen()){
         mv->put(
             format(_("Can't open file \"{}\" for writing.\n"), filename),
             MessageView::ERROR);
@@ -641,6 +644,7 @@ void ProjectManager::Impl::openDialogToSaveProject()
     dialog.setViewMode(QFileDialog::List);
     dialog.setLabelText(QFileDialog::Accept, _("Save"));
     dialog.setLabelText(QFileDialog::Reject, _("Cancel"));
+    dialog.setOption(QFileDialog::DontConfirmOverwrite);
     
     QStringList filters;
     filters << _("Project files (*.cnoid)");
@@ -649,19 +653,54 @@ void ProjectManager::Impl::openDialogToSaveProject()
 
     dialog.updatePresetDirectories();
 
-    if(!currentProjectName.empty() && !currentProjectFile.empty()){
-        dialog.selectFile(currentProjectName.c_str());
+    if(!dialog.selectFilePath(currentProjectFile)){
+        dialog.selectFile(currentProjectName);
     }
 
-    if(dialog.exec()){
-        filesystem::path path(dialog.selectedFiles().front().toStdString());
-        string filename = getNativePathString(path);
+    dialog.sigAboutToFinished().connect(
+        [&](int result){ return onSaveDialogAboutToFinished(dialog, result); });
+
+    if(dialog.exec() == QDialog::Accepted){
+        saveProject(getSaveFilename(dialog));
+    }
+    
+}
+
+
+std::string ProjectManager::Impl::getSaveFilename(FileDialog& dialog)
+{
+    std::string filename;
+    auto filenames = dialog.selectedFiles();
+    if(!filenames.isEmpty()){
+        filename = filenames.front().toStdString();
+        filesystem::path path(filename);
+        //string filename = getNativePathString(path);
         string ext = path.extension().string();
         if(ext != ".cnoid"){
             filename += ".cnoid";
         }
-        saveProject(filename);
     }
+    return filename;
+}
+
+
+bool ProjectManager::Impl::onSaveDialogAboutToFinished(FileDialog& dialog, int result)
+{
+    bool finished = true;
+    if(result == QFileDialog::Accepted){
+        auto filename = getSaveFilename(dialog);
+        if(filesystem::exists(filename)){
+            dialog.fileDialog()->show();
+            QString file(filesystem::path(filename).filename().string().c_str());
+            QString message(QString(_("%1 already exists. Do you want to replace it? ")).arg(file));
+            auto button =
+                QMessageBox::warning(&dialog, dialog.windowTitle(), message, QMessageBox::Ok | QMessageBox::Cancel);
+            if(button == QMessageBox::Cancel){
+                finished = false;
+            }
+        }
+    }
+    return finished;
 }
 
 

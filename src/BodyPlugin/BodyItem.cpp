@@ -4,7 +4,6 @@
 */
 
 #include "BodyItem.h"
-#include "LinkShapeItem.h"
 #include "WorldItem.h"
 #include "EditableSceneBody.h"
 #include "LinkSelectionView.h"
@@ -247,13 +246,8 @@ public:
             return false;
         }
 
-        LinkShapeItem* shapeItem = new LinkShapeItem;
-        shapeItem->setAttribute(Item::Attached);
-        shapeItem->setShape(shape);
-        setActuallyLoadedItem(shapeItem);
-
         auto bodyItem = static_cast<BodyItem*>(item);
-        bodyItem->addChildItem(shapeItem);
+        bodyItem->body()->rootLink()->addShapeNode(shape);
 
         auto itype = invocationType();
         if(itype == Dialog || itype == DragAndDrop){
@@ -1588,9 +1582,9 @@ bool BodyItem::store(Archive& archive)
 
 bool BodyItem::Impl::store(Archive& archive)
 {
-    archive.setDoubleFormat("% .6f");
-
     archive.writeFileInformation(self);
+
+    archive.setDoubleFormat("%.9g");
 
     if(currentBaseLink){
         archive.write("currentBaseLink", currentBaseLink->name(), DOUBLE_QUOTED);
@@ -1608,6 +1602,7 @@ bool BodyItem::Impl::store(Archive& archive)
         bool doWriteInitialJointDisplacements = false;
         BodyState::Data& initialJointDisplacements = initialState.data(BodyState::JOINT_POSITIONS);
         qs = archive.createFlowStyleListing("jointDisplacements");
+        qs->setDoubleFormat("%g");
         for(int i=0; i < n; ++i){
             double q = body->joint(i)->q();
             qs->append(degree(q), 10, n);
@@ -1619,6 +1614,7 @@ bool BodyItem::Impl::store(Archive& archive)
         }
         if(doWriteInitialJointDisplacements){
             qs = archive.createFlowStyleListing("initialJointDisplacements");
+            qs->setDoubleFormat("%g");
             for(size_t i=0; i < initialJointDisplacements.size(); ++i){
                 qs->append(degree(initialJointDisplacements[i]), 10, n);
             }
@@ -1627,6 +1623,7 @@ bool BodyItem::Impl::store(Archive& archive)
 
     // Old format. Remove this after version 1.8 is released.
     qs = archive.createFlowStyleListing("jointPositions");
+    qs->setDoubleFormat("%g");
     n = body->numAllJoints();
     for(int i=0; i < n; ++i){
         qs->append(body->joint(i)->q(), 10, n);

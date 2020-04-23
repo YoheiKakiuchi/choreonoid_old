@@ -296,6 +296,9 @@ public:
     const SgIndexArray& texCoordIndices() const { return texCoordIndices_; }
     SgIndexArray& texCoordIndices() { return texCoordIndices_; }
 
+    float creaseAngle() const { return creaseAngle_; }
+    void setCreaseAngle(float angle) { creaseAngle_ = angle; }
+
     bool isSolid() const { return isSolid_; }
     void setSolid(bool on) { isSolid_ = on; }
 
@@ -310,6 +313,7 @@ private:
     SgIndexArray colorIndices_;
     SgTexCoordArrayPtr texCoords_;
     SgIndexArray texCoordIndices_;
+    float creaseAngle_;
     bool isSolid_;
 };
 
@@ -375,7 +379,11 @@ public:
         triangleVertices_.push_back(v2);
     }
         
-    enum PrimitiveType { MESH = 0, BOX, SPHERE, CYLINDER, CONE, CAPSULE };
+    enum PrimitiveType {
+        MESH = 0, BOX, SPHERE, CYLINDER, CONE, CAPSULE,
+        MesyType = MESH, BoxType = BOX, SphereType = SPHERE,
+        CylinderType = CYLINDER, ConeType = CONE, CapsuleType = CAPSULE
+    };
 
     class Mesh { }; // defined for no primitive information
 

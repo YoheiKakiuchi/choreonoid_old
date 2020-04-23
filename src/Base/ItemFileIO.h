@@ -13,7 +13,6 @@ namespace cnoid {
 
 class Item;
 class ItemManager;
-class ItemManagerImpl;
 class ItemFileIOExtenderBase;
 class ItemFileDialog;
 class Mapping;
@@ -41,8 +40,10 @@ protected:
 public:
     ~ItemFileIO();
 
+    bool isFormat(const std::string& id) const;
     int api() const;
-    void setApi(int api);
+    void setApi(int apiSet);
+    bool hasApi(int api) const;
     void setCaption(const std::string& caption);
     const std::string& caption() const;
     void setFileTypeCaption(const std::string& caption);
@@ -62,27 +63,33 @@ public:
     void setInterfaceLevel(InterfaceLevel level);
     int interfaceLevel() const;
     
+    virtual Item* createItem() = 0;
+
+    // Set the invocation type before calling the loadItem or saveItem function
+    // if the invocation type is not "Direct".
+    void setInvocationType(int type);
+
+    // Load API
     Item* loadItem(
         const std::string& filename,
         Item* parentItem = nullptr, bool doAddition = true, Item* nextItem = nullptr,
         const Mapping* options = nullptr);
+
     bool loadItem(
         Item* item, const std::string& filename,
         Item* parentItem = nullptr, bool doAddition = true, Item* nextItem = nullptr,
         const Mapping* options = nullptr);
 
-    // Pending
-    //bool saveItem(Item* item, const std::string& filename);
-
-    virtual Item* createItem() = 0;
-
-    // Load API
     virtual bool load(Item* item, const std::string& filename);
+    
+    // Save API
+    bool saveItem(Item* item, const std::string& filename, const Mapping* options = nullptr);
+    virtual bool save(Item* item, const std::string& filename);
     
     // Options API
     virtual void resetOptions();
-    virtual void storeOptions(Mapping* archive);
-    virtual bool restoreOptions(const Mapping* archive);
+    virtual void storeOptions(Mapping* options);
+    virtual bool restoreOptions(const Mapping* options);
     
     // OptionPanelForLoading API
     virtual QWidget* getOptionPanelForLoading();
@@ -93,17 +100,20 @@ public:
     //virtual void fetchOptionPanelForPostLoading(Item* item);
     //virtual bool doPostProcessForLoading(Item* item);
 
-    // Save API
-    virtual bool save(Item* item, const std::string& filename);
     // OptionPanelForSaving API
     virtual QWidget* getOptionPanelForSaving(Item* item);
-    virtual void fetchSaveOptionPanel();
+    virtual void fetchOptionPanelForSaving();
 
     Item* parentItem();
-    InvocationType invocationType() const;
+    int invocationType() const;
 
     bool isRegisteredForSingletonItem() const;
     Item* findSingletonItemInstance() const;
+
+    void setItemClassInfo(Referenced* info);
+    const Referenced* itemClassInfo() const;
+
+    static std::vector<std::string> separateExtensions(const std::string& multiExtString);
 
 protected:
     std::ostream& os();
@@ -120,7 +130,6 @@ protected:
 private:
     Impl* impl;
     friend class ItemManager;
-    friend class ItemManagerImpl;
     friend class ItemFileIOExtenderBase;
     friend class ItemFileDialog;
 };
@@ -175,13 +184,13 @@ public:
     bool isAvailable() const;
     virtual bool load(Item* item, const std::string& filename) final;
     virtual void resetOptions() override;
-    virtual void storeOptions(Mapping* archive) override;
-    virtual bool restoreOptions(const Mapping* archive) override;
+    virtual void storeOptions(Mapping* options) override;
+    virtual bool restoreOptions(const Mapping* options) override;
     virtual QWidget* getOptionPanelForLoading() override;
     virtual void fetchOptionPanelForLoading() override;
     virtual bool save(Item* item, const std::string& filename) final;
     virtual QWidget* getOptionPanelForSaving(Item* item) final;
-    virtual void fetchSaveOptionPanel() override;
+    virtual void fetchOptionPanelForSaving() override;
 };
 
 

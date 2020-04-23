@@ -37,8 +37,9 @@ const char* PATH_DELIMITER = ":";
 
 filesystem::path getCompactPath(const filesystem::path& path)
 {
+    return stdx::filesystem::lexically_normal(path);
+    /*
     filesystem::path compact;
-    
     for(filesystem::path::const_iterator p = path.begin(); p != path.end(); ++p){
         if(*p == ".."){
             compact = compact.parent_path();
@@ -46,17 +47,21 @@ filesystem::path getCompactPath(const filesystem::path& path)
             compact /= *p;
         }
     }
-
     return compact;
+    */
 }
 
 
 void makePathCompact(filesystem::path& io_path)
 {
-    io_path = getCompactPath(io_path);
+    io_path = stdx::filesystem::lexically_normal(io_path);
+    //io_path = getCompactPath(io_path);
 }
 
 
+/**
+   \todo Replace this function with std::filesystem::path::lexically_relative
+*/
 int findSubDirectory(const filesystem::path& directory, const filesystem::path& path, filesystem::path& out_subdirectory)
 {
     int numMatchedDepth = 0;
@@ -91,6 +96,11 @@ int findSubDirectory(const filesystem::path& directory, const filesystem::path& 
 
 bool findRelativePath(const filesystem::path& from_, const filesystem::path& to, filesystem::path& out_relativePath)
 {
+#if __cplusplus > 201402L
+    out_relativePath = to.lexically_relative(from_);
+    return !out_relativePath.empty();
+
+#else
     if(from_.is_absolute() && to.is_absolute()){
 
         filesystem::path from(getCompactPath(from_));
@@ -118,6 +128,7 @@ bool findRelativePath(const filesystem::path& from_, const filesystem::path& to,
     }
     
     return false;
+#endif
 }
 
 

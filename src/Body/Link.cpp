@@ -251,14 +251,20 @@ void Link::setName(const std::string& name)
 }
 
 
-std::string Link::jointTypeString() const
+std::string Link::jointTypeString(bool useUnderscore) const
 {
     switch(jointType_){
     case REVOLUTE_JOINT:    return "revolute";
     case PRISMATIC_JOINT:   return "prismatic";
     case FREE_JOINT:        return "free";
     case FIXED_JOINT:       return "fixed";
-    case PSEUDO_CONTINUOUS_TRACK: return "pseudo continuous track";
+    case PSEUDO_CONTINUOUS_TRACK:{
+        if(useUnderscore){
+            return "pseudo_continuous_track";
+        } else {
+            return "pseudo continuous track";
+        }
+    }
     default: return "unknown";
     }
 }
@@ -332,6 +338,16 @@ SgGroup* Link::collisionShape() const
 }
 
 
+bool Link::hasDedicatedCollisionShape() const
+{
+    if(visualShape_->numChildren() != collisionShape_->numChildren() ||
+       !std::equal(visualShape_->begin(), visualShape_->end(), collisionShape_->begin())){
+        return true;
+    }
+    return false;
+}
+
+
 void Link::addShapeNode(SgNode* shape, bool doNotify)
 {
     visualShape_->addChild(shape, doNotify);
@@ -355,6 +371,13 @@ void Link::removeShapeNode(SgNode* shape, bool doNotify)
 {
     visualShape_->removeChild(shape, doNotify);
     collisionShape_->removeChild(shape, doNotify);
+}
+
+
+void Link::clearShapeNodes(bool doNotify)
+{
+    visualShape_->clearChildren(doNotify);
+    collisionShape_->clearChildren(doNotify);
 }
 
 

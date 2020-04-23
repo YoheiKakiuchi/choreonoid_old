@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2020-03-11 15:18+0900\n"
+"POT-Creation-Date: 2020-04-22 16:48+0900\n"
 "PO-Revision-Date: 2011-11-12 11:42+0000\n"
 "Last-Translator: nakaoka <s.nakaoka@aist.go.jp>\n"
 "Language-Team: Japanese\n"
@@ -90,34 +90,34 @@ msgstr "PointSet: 消去モード開始"
 msgid "PointSet: Exit Eraser Mode"
 msgstr "PointSet: 消去モード終了"
 
-#: ItemPropertyWidget.cpp:547
+#: ItemPropertyWidget.cpp:545
 msgid "Select File"
 msgstr "ファイルを選択"
 
-#: ItemPropertyWidget.cpp:551 MovieRecorder.cpp:368
+#: ItemPropertyWidget.cpp:549 MovieRecorder.cpp:368
 msgid "Select"
 msgstr "選択"
 
-#: ItemPropertyWidget.cpp:554
+#: ItemPropertyWidget.cpp:552
 msgid "OK"
 msgstr "OK"
 
-#: ItemPropertyWidget.cpp:556 ItemFileDialog.cpp:75 CaptureBar.cpp:98
-#: ItemManager.cpp:1086 SceneWidget.cpp:900 TaskView.cpp:286
-#: PluginManager.cpp:673 ProjectManager.cpp:622 ProjectManager.cpp:649
+#: ItemPropertyWidget.cpp:554 ItemFileDialog.cpp:75 CaptureBar.cpp:97
+#: SceneWidget.cpp:900 TaskView.cpp:286 PluginManager.cpp:674
+#: ProjectManager.cpp:621 ProjectManager.cpp:645
 msgid "Cancel"
 msgstr "キャンセル"
 
-#: ItemPropertyWidget.cpp:575 ItemFileDialog.cpp:119 CaptureBar.cpp:101
-#: PluginManager.cpp:677 ProjectManager.cpp:626 ProjectManager.cpp:653
+#: ItemPropertyWidget.cpp:575 ItemFileDialog.cpp:333 CaptureBar.cpp:100
+#: PluginManager.cpp:678 ProjectManager.cpp:625 ProjectManager.cpp:650
 msgid "Any files (*)"
 msgstr "全てのファイル (*)"
 
-#: ItemPropertyWidget.cpp:752
+#: ItemPropertyWidget.cpp:751
 msgid "Update"
 msgstr "更新"
 
-#: ItemPropertyWidget.cpp:755
+#: ItemPropertyWidget.cpp:754
 msgid "Reset Column Sizes"
 msgstr "コラムサイズのリセット"
 
@@ -129,26 +129,54 @@ msgstr "座標フレームリストアイテム"
 msgid "Num coordinate frames"
 msgstr "座標フレーム数"
 
-#: ItemFileDialog.cpp:74 PluginManager.cpp:672 ProjectManager.cpp:621
-msgid "Open"
+#: ItemFileDialog.cpp:136
+msgid "Load {0}"
+msgstr "{0}の読み込み"
+
+#: ItemFileDialog.cpp:138
+msgid "Import {0}"
+msgstr "{0}のインポート"
+
+#: ItemFileDialog.cpp:145
+msgid "Load"
 msgstr "読み込み"
 
-#: ItemFileDialog.cpp:126
-msgid "Load %1"
-msgstr "%1の読み込み"
+#: ItemFileDialog.cpp:147
+msgid "Import"
+msgstr "インポート"
 
-#: ItemFileDialog.cpp:152
+#: ItemFileDialog.cpp:170
 msgid "The singleton instance of {} has already been loaded."
 msgstr "{}のシングルトンインスタンスは既に読み込まれています．"
 
-#: CaptureBar.cpp:93
-msgid "Save the image of %1"
-msgstr "%1の画像を保存"
+#: ItemFileDialog.cpp:221
+msgid "Saving {0} to a file is not supported"
+msgstr "{0}のファイル保存はサポートされていません"
 
-#: CaptureBar.cpp:97 ItemManager.cpp:1085 TextEditView.cpp:120
-#: ProjectManager.cpp:648
+#: ItemFileDialog.cpp:223
+msgid "Exporting {0} to a file is not supported"
+msgstr "{0}のファイルエクスポートはサポートされていません"
+
+#: ItemFileDialog.cpp:235
+msgid "Save {} as"
+msgstr "名前を付けて{}を保存"
+
+#: ItemFileDialog.cpp:237
+msgid "Export {} as"
+msgstr "名前を付けて{}をエクスポート"
+
+#: ItemFileDialog.cpp:242 CaptureBar.cpp:96 TextEditView.cpp:120
+#: ProjectManager.cpp:644
 msgid "Save"
 msgstr "保存"
+
+#: ItemFileDialog.cpp:406 ProjectManager.cpp:678
+msgid "%1 already exists. Do you want to replace it? "
+msgstr "既存のファイル %1 を上書きしてもよいですか？"
+
+#: CaptureBar.cpp:92
+msgid "Save the image of %1"
+msgstr "%1の画像を保存"
 
 #: CaptureBar.cpp:128
 msgid "The image of %1 cannot be saved into \"%2\"."
@@ -178,7 +206,7 @@ msgstr "スクリプトバー"
 msgid "Execute scripts"
 msgstr "スクリプトの実行"
 
-#: ViewArea.cpp:1433
+#: ViewArea.cpp:1434
 msgid "Separate the view"
 msgstr "ビューの分離"
 
@@ -219,7 +247,9 @@ msgstr "無効なファイルフォーマット"
 msgid ""
 "Application config file \"{0}\" cannot be loaded.\n"
 "{1})."
-msgstr "アプリケーション設定ファイル \"{0}\" を読み込むことができません．\n{1}"
+msgstr ""
+"アプリケーション設定ファイル \"{0}\" を読み込むことができません．\n"
+"{1}"
 
 #: OptionManager.cpp:90
 msgid "Input file \"{}\" was not processed."
@@ -338,119 +368,77 @@ msgstr "タイムステップ"
 msgid "Num parts"
 msgstr "パート数"
 
-#: ItemManager.cpp:74 ViewManager.cpp:270
+#: ItemManager.cpp:73 ViewManager.cpp:270
 msgid "Name:"
 msgstr "名前"
 
-#: ItemManager.cpp:234
+#: ItemManager.cpp:225
 msgid "New ..."
 msgstr "新規"
 
-#: ItemManager.cpp:237
-msgid "Open ..."
+#: ItemManager.cpp:228
+msgid "Load ..."
 msgstr "読み込み"
 
-#: ItemManager.cpp:239
+#: ItemManager.cpp:230
 msgid "Reload Selected Items"
 msgstr "選択アイテムの再読み込み"
 
-#: ItemManager.cpp:244
+#: ItemManager.cpp:235
 msgid "Save Selected Items"
 msgstr "選択アイテムの保存"
 
-#: ItemManager.cpp:246
+#: ItemManager.cpp:237
 msgid "Save Selected Items As"
 msgstr "名前を付けて選択アイテムを保存"
 
-#: ItemManager.cpp:248
-msgid "Save All Items"
-msgstr "全てのアイテムを保存"
-
-#: ItemManager.cpp:253
+#: ItemManager.cpp:242
 msgid "Import ..."
 msgstr "インポート"
 
-#: ItemManager.cpp:257
+#: ItemManager.cpp:246
 msgid "Export Selected Items"
 msgstr "選択アイテムのエクスポート"
 
-#: ItemManager.cpp:472
+#: ItemManager.cpp:507
 msgid "Class {} is not registered as an item class."
 msgstr "クラス{}はアイテムクラスとして登録されていません．"
 
-#: ItemManager.cpp:478
+#: ItemManager.cpp:513
 msgid "The panel to create {} is not registered."
 msgstr "{}を生成するパネルは登録されていません．"
 
-#: ItemManager.cpp:550
+#: ItemManager.cpp:585
 msgid "Item$"
 msgstr "アイテム$"
 
-#: ItemManager.cpp:552
+#: ItemManager.cpp:587
 msgid "Create New %1"
 msgstr "新しい%1の生成"
 
-#: ItemManager.cpp:595 ViewManager.cpp:276
+#: ItemManager.cpp:630 ViewManager.cpp:276
 msgid "&Create"
 msgstr "生成(&C)"
 
-#: ItemManager.cpp:598 ViewManager.cpp:281 PathVariableEditor.cpp:98
+#: ItemManager.cpp:633 ViewManager.cpp:281 PathVariableEditor.cpp:98
 msgid "&Cancel"
 msgstr "キャンセル(&C)"
 
-#: ItemManager.cpp:894
-msgid "\"{0}\" cannot be loaded because item type \"{1}\" is not registered."
-msgstr "\"{0}\" は\"{1}\"タイプが未登録のため読み込めません．"
+#: ItemManager.cpp:865
+msgid ""
+"\"{0}\" cannot be accessed because the specified item type \"{1}\" is not "
+"registered."
+msgstr "\"{0}\"へのアクセスにおいて指定されたアイテム型\"{1}\"は未登録です．"
 
-#: ItemManager.cpp:933
-msgid "\"{}\" cannot be loaded because the file format is unknown."
-msgstr "\"{}\" はフォーマットが不明なため読み込めません．"
+#: ItemManager.cpp:904
+msgid "The file format for accessing \"{0}\" cannot be determined."
+msgstr "\"{0}\"のファイル形式を確定できません．"
 
-#: ItemManager.cpp:937
-msgid "\"{0}\" cannot be loaded because file format \"{1}\" is unknown."
-msgstr "\"{0}\" はフォーマット\"{1}\"が不明なため読み込めません。"
+#: ItemManager.cpp:908
+msgid "Unknown file format \"{0}\" is specified in accessing \"{1}\"."
+msgstr "\"{1}\"に対して不明なファイル形式\"{0}\"が指定されています．"
 
-#: ItemManager.cpp:985
-msgid "Saving {0} was canceled."
-msgstr "{0}の保存はキャンセルされました．"
-
-#: ItemManager.cpp:1001
-msgid "Saving {0} to \"{1}\""
-msgstr "{0} を \"{1}\" に保存中"
-
-#: ItemManager.cpp:1003
-msgid "Exporting {0} into \"{1}\""
-msgstr "{0} を \"{1}\" にエクスポート中"
-
-#: ItemManager.cpp:1016 ItemFileIO.cpp:259
-msgid " -> failed.\n"
-msgstr " -> 失敗.\n"
-
-#: ItemManager.cpp:1021 ItemFileIO.cpp:278
-msgid " -> ok!\n"
-msgstr " -> 完了!\n"
-
-#: ItemManager.cpp:1029
-msgid "{} cannot be saved.\n"
-msgstr "{} は保存できません．\n"
-
-#: ItemManager.cpp:1031
-msgid "{} cannot be exported.\n"
-msgstr "{} はエクスポートできません．\n"
-
-#: ItemManager.cpp:1035
-msgid "{0} cannot be saved as the {1} format.\n"
-msgstr "{0} はフォーマット{1}として保存できません．\n"
-
-#: ItemManager.cpp:1037
-msgid "{0} cannot be exported into the {1} format.\n"
-msgstr "{0} はフォーマット{1}としてエクスポートできません．\n"
-
-#: ItemManager.cpp:1081
-msgid "Save %1 as"
-msgstr "%1の保存"
-
-#: ItemManager.cpp:1390
+#: ItemManager.cpp:1255
 msgid ";;Any files (*)"
 msgstr ";;全てのファイル (*)"
 
@@ -832,81 +820,74 @@ msgstr "オプション"
 msgid "Help"
 msgstr "ヘルプ"
 
-#: ItemTreeArchiver.cpp:103
+#: ItemTreeArchiver.cpp:102
 msgid "Not all items were stored correctly."
 msgstr "正常に書き出しできないアイテムがあります．"
 
-#: ItemTreeArchiver.cpp:116
+#: ItemTreeArchiver.cpp:115
 msgid "\"{}\" cannot be stored. Its type is not registered."
 msgstr "\"{}\" は型が登録されていないため書き出しできません．"
 
-#: ItemTreeArchiver.cpp:128
+#: ItemTreeArchiver.cpp:127
 msgid "Storing {0} \"{1}\""
 msgstr "{0} \"{1}\"を書き出し中"
 
-#: ItemTreeArchiver.cpp:135
+#: ItemTreeArchiver.cpp:134
 msgid "\"{}\" cannot be stored."
 msgstr "\"{}\" は書き出しできません．"
 
-#: ItemTreeArchiver.cpp:209
+#: ItemTreeArchiver.cpp:208
 msgid ""
 "Addon \"{0}\" of item \"{1}\" cannot be stored. Its type is not registered."
-msgstr "アイテム \"{1}\" のアドオン \"{0}\" は型が登録されていないため書き出しできません．"
+msgstr ""
+"アイテム \"{1}\" のアドオン \"{0}\" は型が登録されていないため書き出しできま"
+"せん．"
 
-#: ItemTreeArchiver.cpp:218
-msgid "Addon \"{0}\" of item \"{1}\" cannot be stored."
-msgstr "アイテム \"{1}\" のアドオン \"{0}\" は書き出しできません．"
-
-#: ItemTreeArchiver.cpp:275
+#: ItemTreeArchiver.cpp:277
 msgid "Item cannot be restored."
 msgstr "アイテムを読み出すことができません。"
 
-#: ItemTreeArchiver.cpp:277
+#: ItemTreeArchiver.cpp:279
 msgid "\"{}\" cannot be restored."
 msgstr "\"{}\" を読み出すことができません．"
 
 #: ItemTreeArchiver.cpp:312
 msgid "Sub item \"{}\" is not found. Its children cannot be restored."
-msgstr ""
-"サブアイテム\"{}\"が見つからないため読み出しができません．"
+msgstr "サブアイテム\"{}\"が見つからないため読み出しができません．"
 
 #: ItemTreeArchiver.cpp:322
 msgid "Archive is broken."
 msgstr "アーカイブが壊れています．"
 
-#: ItemTreeArchiver.cpp:332
-msgid "{}Plugin is not loaded."
-msgstr "{}Pluginが読み込まれていません．"
-
-#: ItemTreeArchiver.cpp:339
+#: ItemTreeArchiver.cpp:331
 msgid "{0} of {1}Plugin is not a registered item type."
 msgstr "{1}Pluginの{0}は未登録のタイプであるため読み込みできません．"
 
-#: ItemTreeArchiver.cpp:359
+#: ItemTreeArchiver.cpp:351
 msgid "Restoring {0} \"{1}\""
 msgstr "{0} \"{1}\" を読み出し中"
 
-#: ItemTreeArchiver.cpp:365
+#: ItemTreeArchiver.cpp:357
 msgid "The 'data' key does not have mapping-type data."
 msgstr "'data'の値がマッピング型でありません．"
 
-#: ItemTreeArchiver.cpp:394
+#: ItemTreeArchiver.cpp:386
 msgid "The 'addons' value must be a listing."
 msgstr "'addons'の値はリストでなければなりません．"
 
-#: ItemTreeArchiver.cpp:402
+#: ItemTreeArchiver.cpp:394
 msgid "The name and plugin are not specified at addon {0}."
 msgstr "アドオン {0} の名前とプラグインが指定されていません．"
 
-#: ItemTreeArchiver.cpp:407
+#: ItemTreeArchiver.cpp:399
 msgid "Addon \"{0}\" of plugin \"{1}\" cannot be created."
 msgstr "プラグイン \"{1}\" のアドオン \"{0}\" を生成できません．"
 
-#: ItemTreeArchiver.cpp:411
+#: ItemTreeArchiver.cpp:403
 msgid "Addon \"{0}\" is cannot be added to item \"{1}\"."
 msgstr "アドオン \"{0}\" はアイテム \"{1}\" に追加できません．"
 
-#: ItemTreeArchiver.cpp:415
+#: ItemTreeArchiver.cpp:407
 msgid "Addon \"{0}\" of plugin \"{1}\" cannot be restored."
 msgstr "プラグイン \"{1}\" のアドオン \"{0}\" を読み出すことができません．"
 
@@ -1078,7 +1059,7 @@ msgstr "汎用スライダ"
 msgid "The copied items cannot be pasted to \"{0}\"."
 msgstr "コピーされたアイテムを\"{0}\"にペーストできませんでした．"
 
-#: PathVariableEditor.cpp:58 ProjectManager.cpp:155
+#: PathVariableEditor.cpp:58 ProjectManager.cpp:157
 msgid "Project File Options"
 msgstr "プロジェクトファイルオプション"
 
@@ -1105,14 +1086,6 @@ msgstr "追記"
 #: PathVariableEditor.cpp:96
 msgid "&Apply"
 msgstr "適用(&A)"
-
-#: Archive.cpp:99
-msgid "${%1} of \"%2\" is not defined."
-msgstr "\"%2\"の${%1}は定義されていません．"
-
-#: Archive.cpp:118
-msgid "\"%1\" does not exist."
-msgstr "\"%1\"は存在しません．"
 
 #: MultiValueSeqItem.cpp:39
 msgid "MultiValueSeqItem"
@@ -1294,13 +1267,41 @@ msgstr "親（ {} ）"
 msgid "Local"
 msgstr "ローカル"
 
-#: ItemFileIO.cpp:221
+#: ItemFileIO.cpp:294
 msgid "Item with empty filename cannot be loaded."
 msgstr "空のファイル名のアイテムを読み込むことはできません．"
 
-#: ItemFileIO.cpp:245
+#: ItemFileIO.cpp:299
+msgid "{0} cannot be loaded because {1}"
+msgstr "{0}はロードできません: {1}"
+
+#: ItemFileIO.cpp:304
 msgid "Loading {0} \"{1}\""
 msgstr "{0} \"{1}\" を読み込み中"
+
+#: ItemFileIO.cpp:312 ItemFileIO.cpp:390
+msgid " -> failed.\n"
+msgstr " -> 失敗.\n"
+
+#: ItemFileIO.cpp:331 ItemFileIO.cpp:401
+msgid " -> ok!\n"
+msgstr " -> 完了!\n"
+
+#: ItemFileIO.cpp:366
+msgid "{0} cannot be saved with empty filename."
+msgstr "ファイル名が指定されていないので{0}を保存できません．"
+
+#: ItemFileIO.cpp:371
+msgid "{0} cannot be saved because {1}"
+msgstr "{0}は保存できません： {1}"
+
+#: ItemFileIO.cpp:378
+msgid "Saving {0} \"{1}\" to \"{2}\""
+msgstr "{0} \"{1}\" を \"{2}\" に保存中"
+
+#: ItemFileIO.cpp:381
+msgid "Exporting {0} \"{1}\" into \"{2}\""
+msgstr "{0} \"{1}\" を \"{2}\" にエクスポート中"
 
 #: ReferencedObjectSeqItem.cpp:15
 msgid "ReferencedObjectSeqItem"
@@ -1378,7 +1379,7 @@ msgstr ""
 msgid "Plugin file \"{0}\" conflicts with \"{1}\"."
 msgstr "{0}プラグインは\"{1}\"と競合しています．"
 
-#: PluginManager.cpp:558 PluginManager.cpp:656
+#: PluginManager.cpp:558 PluginManager.cpp:657
 msgid "Loading the plugin failed."
 msgstr "プラグインの読み込みができませんでした．"
 
@@ -1386,31 +1387,35 @@ msgstr "プラグインの読み込みができませんでした．"
 msgid "The plugin object cannot be intialized."
 msgstr "プラグインオブジェクトの初期化ができません．"
 
-#: PluginManager.cpp:636
+#: PluginManager.cpp:637
 msgid "About Plugins"
 msgstr "プラグインについて"
 
-#: PluginManager.cpp:637 PluginManager.cpp:710
+#: PluginManager.cpp:638 PluginManager.cpp:711
 msgid "About {} Plugin"
 msgstr "{}プラグインについて"
 
-#: PluginManager.cpp:648
+#: PluginManager.cpp:649
 msgid "{}-plugin has been activated."
 msgstr "{}プラグインが読み込まれました．"
 
-#: PluginManager.cpp:669
+#: PluginManager.cpp:670
 msgid "Load plugins"
 msgstr "プラグインの読み込み"
 
-#: PluginManager.cpp:676
+#: PluginManager.cpp:673 ProjectManager.cpp:620
+msgid "Open"
+msgstr "読み込み"
+
+#: PluginManager.cpp:677
 msgid "Plugin files (*.%1)"
 msgstr "プラグインファイル (*.%1)"
 
-#: PluginManager.cpp:811
+#: PluginManager.cpp:813
 msgid "Plugin {} cannot be finalized."
 msgstr "プラグイン{}を終了できません．"
 
-#: PluginManager.cpp:850
+#: PluginManager.cpp:852
 msgid "Plugin dll {} has been unloaded."
 msgstr "プラグイン{}のDLLが解放されました．"
 
@@ -1426,15 +1431,15 @@ msgstr "座標フレームリスト一式アイテム"
 msgid "Image"
 msgstr "画像"
 
-#: ImageView.cpp:245
+#: ImageView.cpp:247
 msgid "ImageViewBar"
 msgstr "画像ビューバー"
 
-#: ImageView.cpp:263
+#: ImageView.cpp:265
 msgid "Select an imageable item"
 msgstr "画像アイテムの選択"
 
-#: ImageView.cpp:272
+#: ImageView.cpp:274
 msgid "Adjust image size according to view"
 msgstr "画像サイスをビューに合わせる"
 
@@ -1743,8 +1748,8 @@ msgid ""
 " \"{}\" already exists.\n"
 " Do you want to replace it? "
 msgstr ""
-" \"{}\" は既に存在しています。\n"
-"　内容が削除されてもいいですか？"
+" \"{}\" は既存のファイルです．\n"
+" 上書きしてもよいですか？"
 
 #: MessageLogItem.cpp:156
 msgid "Couldn't open file \"{}\" for writing.\n"
@@ -1778,29 +1783,29 @@ msgstr ""
 msgid "Vector3SeqItem"
 msgstr "３次元ベクタ列アイテム"
 
-#: App.cpp:271 App.cpp:430
+#: App.cpp:310 App.cpp:472
 msgid "About Choreonoid"
 msgstr "Choreonoid について"
 
-#: App.cpp:275
+#: App.cpp:314
 msgid ""
 "The Eigen library version {0}.{1}.{2} is used (SIMD intruction sets in use: "
 "{3})."
 msgstr ""
 
-#: PositionWidget.cpp:256
+#: PositionWidget.cpp:307
 msgid "Roll-pitch-yaw"
 msgstr "ロールピッチヨー"
 
-#: PositionWidget.cpp:261
+#: PositionWidget.cpp:312
 msgid "Fetch as a unique RPY value"
 msgstr "一意なRPY値として取り込み"
 
-#: PositionWidget.cpp:266
+#: PositionWidget.cpp:317
 msgid "Quoternion"
 msgstr "クオタニオン"
 
-#: PositionWidget.cpp:271
+#: PositionWidget.cpp:322
 msgid "Rotation matrix"
 msgstr "回転行列"
 
@@ -1824,19 +1829,19 @@ msgstr "追加"
 msgid "Remove"
 msgstr "削除"
 
-#: ProjectManager.cpp:148
+#: ProjectManager.cpp:150
 msgid "Open Project"
 msgstr "プロジェクトの読み込み"
 
-#: ProjectManager.cpp:150
+#: ProjectManager.cpp:152
 msgid "Save Project"
 msgstr "プロジェクトの保存"
 
-#: ProjectManager.cpp:152
+#: ProjectManager.cpp:154
 msgid "Save Project As"
 msgstr "名前を付けてプロジェクトを保存"
 
-#: ProjectManager.cpp:157
+#: ProjectManager.cpp:159
 msgid "Perspective"
 msgstr "レイアウト"
 
@@ -1898,15 +1903,15 @@ msgstr "プロジェクトファイルの保存が完了しました."
 msgid "Saving the project file failed."
 msgstr "プロジェクトファイルの保存に失敗しました．"
 
-#: ProjectManager.cpp:618
+#: ProjectManager.cpp:617
 msgid "Open a Choreonoid project file"
 msgstr "Choreonoidプロジェクトファイルの読み込み"
 
-#: ProjectManager.cpp:625 ProjectManager.cpp:652
+#: ProjectManager.cpp:624 ProjectManager.cpp:649
 msgid "Project files (*.cnoid)"
 msgstr "プロジェクトファイル (*.cnoid)"
 
-#: ProjectManager.cpp:644
+#: ProjectManager.cpp:640
 msgid "Save a choreonoid project file"
 msgstr "Choreonoid プロジェクトファイルの保存"
 

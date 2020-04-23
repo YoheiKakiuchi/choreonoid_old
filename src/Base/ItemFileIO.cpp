@@ -1,20 +1,53 @@
 #include "ItemFileIO.h"
-#include "ItemFileIOImpl.h"
 #include "ItemManager.h"
 #include "MessageView.h"
 #include <cnoid/NullOut>
 #include <cnoid/FileUtil>
 #include <cnoid/ValueTree>
-#include <cnoid/ParametricPathProcessor>
+#include <cnoid/FilePathVariableProcessor>
 #include <fmt/format.h>
 #include "gettext.h"
-
-#include <iostream>
 
 using namespace std;
 using namespace cnoid;
 namespace filesystem = cnoid::stdx::filesystem;
 using fmt::format;
+
+
+namespace cnoid {
+
+class ItemFileIO::Impl
+{
+public:
+    ItemFileIO* self;
+    int api;
+    std::string formatId;
+    std::vector<std::string> formatIdAliases;
+    std::string caption;
+    std::string fileTypeCaption;
+    std::vector<std::string> extensions;
+    std::function<std::string()> extensionFunction;
+    ItemFileIO::InterfaceLevel interfaceLevel;
+    int invocationType;
+    Item* parentItem;
+    Item* actuallyLoadedItem;
+    std::ostream* os;
+    MessageView* mv;
+    std::string errorMessage;
+
+    // This variable actualy points a instance of the ClassInfo class defined in ItemManager.cpp
+    mutable weak_ref_ptr<Referenced> itemClassInfo;
+
+    Impl(ItemFileIO* self, const std::string& formatId, int api);
+    Impl(ItemFileIO* self, const Impl& org);
+    bool preprocessLoadingOrSaving(Item* item, std::string& io_filename, const Mapping* options);
+    bool loadItem(
+        Item* item, std::string filename,
+        Item* parentItem, bool doAddition, Item* nextItem, const Mapping* options);
+    bool saveItem(Item* item, std::string filename, const Mapping* options);
+};
+
+}
 
 
 ItemFileIO::ItemFileIO(const std::string& formatId, int api)
@@ -65,6 +98,7 @@ ItemFileIO::Impl::Impl(ItemFileIO* self, const Impl& org)
       interfaceLevel(org.interfaceLevel),
       invocationType(org.invocationType)
 {
+    invocationType = Direct;
     parentItem = nullptr;
     mv = MessageView::instance();
     os = &mv->cout(true);
@@ -77,6 +111,22 @@ ItemFileIO::~ItemFileIO()
 }
 
 
+bool ItemFileIO::isFormat(const std::string& id) const
+{
+    if(!id.empty()){
+        if(impl->formatId == id){
+            return true;
+        }
+        for(auto& alias : impl->formatIdAliases){
+            if(alias == id){
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+
 int ItemFileIO::api() const
 {
     return impl->api;
@@ -86,6 +136,12 @@ int ItemFileIO::api() const
 void ItemFileIO::setApi(int api)
 {
     impl->api = api;
+}
+
+
+bool ItemFileIO::hasApi(int api) const
+{
+    return impl->api & api;
 }
 
 
@@ -144,13 +200,13 @@ void ItemFileIO::setExtensionFunction(std::function<std::string()> func)
 std::vector<std::string> ItemFileIO::extensions() const
 {
     if(impl->extensionFunction){
-        return impl->separateExtensions(impl->extensionFunction());
+        return separateExtensions(impl->extensionFunction());
     }    
     return impl->extensions;
 }
 
 
-std::vector<std::string> ItemFileIO::Impl::separateExtensions(const std::string& multiExtString)
+std::vector<std::string> ItemFileIO::separateExtensions(const std::string& multiExtString)
 {
     std::vector<std::string> extensions;
     const char* str = multiExtString.c_str();
@@ -164,75 +220,36 @@ std::vector<std::string> ItemFileIO::Impl::separateExtensions(const std::string&
 }
 
 
-QString ItemFileIO::Impl::makeNameFilter
-(const std::string& caption, const std::vector<std::string>& extensions, bool isAnyEnabled)
-{
-    QString filter(caption.c_str());
-
-    if(!extensions.empty()){
-        QString prefix = " (";
-        for(auto& ext : extensions){
-            filter += prefix;
-            filter += "*.";
-            filter += ext.c_str();
-            prefix = " ";
-        }
-        filter += ")";
-    } else if(isAnyEnabled){
-        filter += " (*)";
-    }
-
-    return filter;
-}
-
-
 void ItemFileIO::setInterfaceLevel(InterfaceLevel level)
 {
     impl->interfaceLevel = level;
 }
 
 
-Item* ItemFileIO::loadItem
-(const std::string& filename,
- Item* parentItem, bool doAddition, Item* nextItem, const Mapping* options)
+int ItemFileIO::interfaceLevel() const
 {
-    if(auto item = createItem()){
-        if(loadItem(item, filename, parentItem, doAddition, nextItem, options)){
-            return item;
+    return impl->interfaceLevel;
+}
+
+
+void ItemFileIO::setInvocationType(int type)
+{
+    impl->invocationType = type;
+}
+
+
+bool ItemFileIO::Impl::preprocessLoadingOrSaving
+(Item* item, std::string& io_filename, const Mapping* options)
+{
+    if(invocationType == Direct){
+        FilePathVariableProcessor* pathProcessor = FilePathVariableProcessor::systemInstance();
+        io_filename = pathProcessor->expand(io_filename, true);
+        if(io_filename.empty()){
+            errorMessage = pathProcessor->errorMessage();
+            return false;
         }
     }
-    return nullptr;
-}
 
-
-bool ItemFileIO::loadItem
-(Item* item, const std::string& filename,
- Item* parentItem, bool doAddition, Item* nextItem, const Mapping* options)
-{
-    return impl->loadItem(Direct, item, filename, parentItem, doAddition, nextItem, options);
-}
-
-
-bool ItemFileIO::Impl::loadItem
-(InvocationType invocationType, Item* item, const std::string& filename,
- Item* parentItem, bool doAddition, Item* nextItem, const Mapping* options)
-{
-    if(filename.empty()){
-        self->putError(_("Item with empty filename cannot be loaded."));
-        return false;
-    }
-
-    ParametricPathProcessor* pathProcessor = ParametricPathProcessor::instance();
-    auto expanded = pathProcessor->expand(filename);
-    if(!expanded){
-        self->putError(pathProcessor->errorMessage());
-        return false;
-    }
-
-    filesystem::path filepath = cnoid::getAbsolutePath(*expanded);
-    string pathString = cnoid::getPathString(filepath);
-
-    this->invocationType = invocationType;
     if((invocationType == Direct) && (api & ItemFileIO::Options)){
         self->resetOptions();
         if(options){
@@ -240,20 +257,56 @@ bool ItemFileIO::Impl::loadItem
         }
     }
 
-    string actualFilename(toActualPathName(pathString));
+    return true;
+}
 
-    mv->notify(format(_("Loading {0} \"{1}\""), caption, actualFilename));
-    mv->flush();
 
-    if(parentItem){
-        this->parentItem = parentItem;
-    } else {
-        this->parentItem = nullptr;
+Item* ItemFileIO::loadItem
+(const std::string& filename,
+ Item* parentItem, bool doAddition, Item* nextItem, const Mapping* options)
+{
+    ItemPtr item;
+    if(item = createItem()){
+        if(!loadItem(item, filename, parentItem, doAddition, nextItem, options)){
+            item.reset();
+        }
+    }
+    impl->invocationType = Direct;
+    return item.retn();
+}
+
+
+bool ItemFileIO::loadItem
+(Item* item, const std::string& filename,
+ Item* parentItem, bool doAddition, Item* nextItem, const Mapping* options)
+{
+    bool loaded = impl->loadItem(item, filename, parentItem, doAddition, nextItem, options);
+    impl->invocationType = Direct;
+    return loaded;
+}
+
+
+bool ItemFileIO::Impl::loadItem
+(Item* item, std::string filename,
+ Item* parentItem, bool doAddition, Item* nextItem, const Mapping* options)
+{
+    if(filename.empty()){
+        self->putError(_("Item with empty filename cannot be loaded."));
+        return false;
     }
 
+    if(!preprocessLoadingOrSaving(item, filename, options)){
+        self->putError(format(_("{0} cannot be loaded because {1}"), item->name(), errorMessage));
+        return false;
+    }
+    this->parentItem = parentItem;
+
+    mv->notify(format(_("Loading {0} \"{1}\""), caption, filename));
+    mv->flush();
+
     actuallyLoadedItem = item;
-    bool loaded = self->load(item, actualFilename);
-    os->flush();
+    bool loaded = self->load(item, filename);
+    mv->flush();
 
     if(!loaded){
         mv->put(_(" -> failed.\n"), MessageView::HIGHLIGHT);
@@ -269,7 +322,7 @@ bool ItemFileIO::Impl::loadItem
             optionArchive = new Mapping;
             self->storeOptions(optionArchive);
         }
-        actuallyLoadedItem->updateFileInformation(actualFilename, formatId, optionArchive);
+        actuallyLoadedItem->updateFileInformation(filename, formatId, optionArchive);
 
         if(doAddition && parentItem){
             parentItem->insertChildItem(item, nextItem, true);
@@ -280,8 +333,15 @@ bool ItemFileIO::Impl::loadItem
     mv->flush();
 
     this->parentItem = nullptr;
+    actuallyLoadedItem = nullptr;
 
     return loaded;
+}
+
+
+bool ItemFileIO::load(Item* item, const std::string& filename)
+{
+    return false;
 }
 
 
@@ -291,15 +351,68 @@ void ItemFileIO::setActuallyLoadedItem(Item* item)
 }
 
 
-/*
-bool ItemFileIO::saveItem(Item* item, const std::string& filename)
+bool ItemFileIO::saveItem(Item* item, const std::string& filename, const Mapping* options)
 {
-
+    bool saved = impl->saveItem(item, filename, options);
+    impl->invocationType = Direct;
+    return saved;
 }
-*/
 
 
-bool ItemFileIO::load(Item* item, const std::string& filename)
+bool ItemFileIO::Impl::saveItem
+(Item* item, std::string filename, const Mapping* options)
+{
+    if(filename.empty()){
+        self->putError(format(_("{0} cannot be saved with empty filename."), item->name()));
+        return false;
+    }
+
+    if(!preprocessLoadingOrSaving(item, filename, options)){
+        self->putError(format(_("{0} cannot be saved because {1}"), item->name(), errorMessage));
+        return false;
+    }
+    parentItem = item->parentItem();
+
+    bool isExport = (interfaceLevel == Conversion);
+    if(!isExport){
+        mv->notify(format(_("Saving {0} \"{1}\" to \"{2}\""),
+                          caption, item->name(), filename));
+    } else {
+        mv->notify(format(_("Exporting {0} \"{1}\" into \"{2}\""),
+                          caption, item->name(), filename));
+    }
+    mv->flush();
+
+    bool saved = self->save(item, filename);
+    mv->flush();
+
+    if(!saved){
+        mv->put(_(" -> failed.\n"), MessageView::HIGHLIGHT);
+
+    } else {
+        MappingPtr optionArchive;
+        if(api & ItemFileIO::Options){
+            optionArchive = new Mapping;
+            self->storeOptions(optionArchive);
+        }
+        if(interfaceLevel != Conversion){
+            item->updateFileInformation(filename, formatId, optionArchive);
+        }
+        mv->put(_(" -> ok!\n"));
+    }
+    mv->flush();
+
+    this->parentItem = nullptr;
+
+    if(saved && !isExport){
+        item->setTemporal(false);
+    }
+
+    return saved;
+}
+
+
+bool ItemFileIO::save(Item* item, const std::string& filename)
 {
     return false;
 }
@@ -311,13 +424,13 @@ void ItemFileIO::resetOptions()
 }
 
 
-void ItemFileIO::storeOptions(Mapping* /* archive */)
+void ItemFileIO::storeOptions(Mapping* /* options */)
 {
 
 }
 
 
-bool ItemFileIO::restoreOptions(const Mapping* /* archive */)
+bool ItemFileIO::restoreOptions(const Mapping* /* options */)
 {
     return true;
 }
@@ -335,19 +448,13 @@ void ItemFileIO::fetchOptionPanelForLoading()
 }
 
 
-bool ItemFileIO::save(Item* item, const std::string& filename)
-{
-    return false;
-}
-
-
 QWidget* ItemFileIO::getOptionPanelForSaving(Item* /* item */)
 {
     return nullptr;
 }
 
 
-void ItemFileIO::fetchSaveOptionPanel()
+void ItemFileIO::fetchOptionPanelForSaving()
 {
 
 }
@@ -359,21 +466,9 @@ Item* ItemFileIO::parentItem()
 }
 
 
-ItemFileIO::InvocationType ItemFileIO::invocationType() const
+int ItemFileIO::invocationType() const
 {
     return impl->invocationType;
-}
-
-
-bool ItemFileIO::isRegisteredForSingletonItem() const
-{
-    return impl->isRegisteredForSingletonItem();
-}
-
-
-Item* ItemFileIO::findSingletonItemInstance() const
-{
-    return impl->findSingletonItemInstance();
 }
 
 
@@ -395,6 +490,18 @@ void ItemFileIO::putError(const std::string& message)
 }
 
 
+void ItemFileIO::setItemClassInfo(Referenced* info)
+{
+    impl->itemClassInfo = info;
+}
+
+
+const Referenced* ItemFileIO::itemClassInfo() const
+{
+    return impl->itemClassInfo.lock();
+}
+
+
 ItemFileIOExtenderBase::ItemFileIOExtenderBase(const std::type_info& type, const std::string& formatId)
 {
     baseFileIO = ItemManager::findFileIO(type, formatId);
@@ -409,6 +516,7 @@ bool ItemFileIOExtenderBase::isAvailable() const
     return baseFileIO != nullptr;
 }
 
+
 bool ItemFileIOExtenderBase::load(Item* item, const std::string& filename)
 {
     return baseFileIO ? baseFileIO->load(item, filename) : false;
@@ -422,22 +530,26 @@ void ItemFileIOExtenderBase::resetOptions()
     }
 }
 
-void ItemFileIOExtenderBase::storeOptions(Mapping* archive)
+
+void ItemFileIOExtenderBase::storeOptions(Mapping* options)
 {
     if(baseFileIO){
-        baseFileIO->storeOptions(archive);
+        baseFileIO->storeOptions(options);
     }
 }
 
-bool ItemFileIOExtenderBase::restoreOptions(const Mapping* archive)
+
+bool ItemFileIOExtenderBase::restoreOptions(const Mapping* options)
 {
-    return baseFileIO ? baseFileIO->restoreOptions(archive) : true;
+    return baseFileIO ? baseFileIO->restoreOptions(options) : true;
 }
+
 
 QWidget* ItemFileIOExtenderBase::getOptionPanelForLoading()
 {
     return baseFileIO ? baseFileIO->getOptionPanelForLoading() : nullptr;
 }
+
 
 void ItemFileIOExtenderBase::fetchOptionPanelForLoading()
 {
@@ -446,15 +558,17 @@ void ItemFileIOExtenderBase::fetchOptionPanelForLoading()
     }
 }
 
+
 QWidget* ItemFileIOExtenderBase::getOptionPanelForSaving(Item* item)
 {
     return baseFileIO ? baseFileIO->getOptionPanelForSaving(item) : nullptr;
 }
 
-void ItemFileIOExtenderBase::fetchSaveOptionPanel()
+
+void ItemFileIOExtenderBase::fetchOptionPanelForSaving()
 {
     if(baseFileIO){
-        baseFileIO->fetchSaveOptionPanel();
+        baseFileIO->fetchOptionPanelForSaving();
     }
 }
     

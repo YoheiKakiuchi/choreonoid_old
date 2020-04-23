@@ -9,7 +9,6 @@ set(sources
   WorldItem.cpp
   BodySelectionManager.cpp
   BodyItem.cpp
-  LinkShapeItem.cpp
   LinkCoordFrameListSuiteItem.cpp
   LinkKinematicsKitManager.cpp
   SimulatorItem.cpp
@@ -42,8 +41,10 @@ set(sources
   LinkTreeWidget.cpp
   LinkSelectionView.cpp
   LinkPositionView.cpp
+  LinkPositionWidget.cpp
   LinkPropertyView.cpp
   JointDisplacementView.cpp
+  JointDisplacementWidget.cpp
   JointStateView.cpp
   BodyStateView.cpp
   DigitalIoDeviceView.cpp
@@ -61,7 +62,6 @@ set(headers
   WorldItem.h
   BodySelectionManager.h
   BodyItem.h
-  LinkShapeItem.h
   LinkCoordFrameListSuiteItem.h
   LinkKinematicsKitManager.h
   SimulatorItem.h
@@ -88,6 +88,8 @@ set(headers
   LinkTreeWidget.h
   LinkSelectionView.h
   LinkPositionView.h
+  LinkPositionWidget.h
+  JointDisplacementWidget.h
   EditableSceneBody.h
   CollisionSeq.h
   CollisionSeqItem.h

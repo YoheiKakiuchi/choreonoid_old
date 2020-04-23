@@ -161,7 +161,7 @@ public:
     /// deprecated
     bool isSlideJoint() const { return jointType_ == SLIDE_JOINT; }
 
-    std::string jointTypeString() const;
+    std::string jointTypeString(bool useUnderscore = false) const;
         
     const Vector3& a() const { return a_; }    
     const Vector3& jointAxis() const { return a_; }
@@ -260,6 +260,7 @@ public:
     SgGroup* shape() const;
     SgGroup* visualShape() const;
     SgGroup* collisionShape() const;
+    bool hasDedicatedCollisionShape() const;
 
     void setName(const std::string& name);
 
@@ -314,6 +315,7 @@ public:
     void addVisualShapeNode(SgNode* shape, bool doNotify = false);
     void addCollisionShapeNode(SgNode* shape, bool doNotify = false);
     void removeShapeNode(SgNode* shape, bool doNotify = false);
+    void clearShapeNodes(bool doNotify = false);
     void updateShapeRs();
 
     // The following two methods should be deprecated after introducing Tb
