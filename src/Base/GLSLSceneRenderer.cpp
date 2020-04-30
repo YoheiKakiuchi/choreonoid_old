@@ -244,11 +244,11 @@ public:
     LightingProgram* currentLightingProgram;
     MaterialLightingProgram* currentMaterialLightingProgram;
 
-    NolightingProgram nolightingProgram;
-    SolidColorProgram solidColorProgram;
-    MinimumLightingProgram minimumLightingProgram;
-    PhongLightingProgram phongLightingProgram;
-    PhongShadowLightingProgram phongShadowLightingProgram;
+    unique_ptr<NolightingProgram> nolightingProgram;
+    unique_ptr<SolidColorProgram> solidColorProgram;
+    unique_ptr<MinimumLightingProgram> minimumLightingProgram;
+    unique_ptr<PhongLightingProgram> phongLightingProgram;
+    unique_ptr<PhongShadowLightingProgram> phongShadowLightingProgram;
 
     vector<ScopedShaderProgramActivator> programStack;
 
@@ -257,7 +257,8 @@ public:
        The number is used to execute some operation onece at each rendering frame.
     */
     unsigned int renderingFrameId;
-    
+
+    bool isGLCleared;
     bool isRenderingVisibleImage;
     bool isRenderingPickingImage;
     bool isPickingImageOutputEnabled;
@@ -343,6 +344,11 @@ public:
     std::mutex newExtensionMutex;
     vector<std::function<void(GLSLSceneRenderer* renderer)>> newExtendFunctions;
 
+    string glVersionString;
+    string glVendorString;
+    string glRendererString;
+    string glslVersionString;
+
     void renderChildNodes(SgGroup* group){
         for(auto p = group->cbegin(); p != group->cend(); ++p){
             renderingFunctions.dispatch(*p);
@@ -354,7 +360,10 @@ public:
     void initialize();
     void onExtensionAdded(std::function<void(GLSLSceneRenderer* renderer)> func);
     void updateDefaultFramebufferObject();
+    void clearGL(bool isGLContextActive, bool isCalledFromConstructor, bool isCalledFromDestructor);
+    void clearResourceMap();
     bool initializeGL();
+    bool initializeGLForRendering();
     void doRender();
     void setupFullLightingRendering();
     bool doPick(int x, int y);
@@ -442,106 +451,6 @@ GLSLSceneRenderer::Impl::Impl(GLSLSceneRenderer* self)
 }
 
 
-void GLSLSceneRenderer::Impl::initialize()
-{
-    {
-        std::lock_guard<std::mutex> guard(extensionMutex);
-        renderers.insert(self);
-    }
-    
-    defaultFBO = 0;
-    fboForPicking = 0;
-    colorBufferForPicking = 0;
-    depthBufferForPicking = 0;
-    pickingImageWidth = 0;
-    pickingImageHeight = 0;
-
-    currentProgram = nullptr;
-    currentNolightingProgram = nullptr;
-    currentLightingProgram = nullptr;
-    currentMaterialLightingProgram = nullptr;
-
-    renderingFrameId = 1;
-    isRenderingVisibleImage = false;
-    isRenderingPickingImage = false;
-    isPickingImageOutputEnabled = false;
-    isShadowCastingEnabled = true;
-    isRenderingShadowMap = false;
-    isLowMemoryConsumptionMode = false;
-    isBoundingBoxRenderingMode = false;
-    isBoundingBoxRenderingForLightweightRenderingGroupEnabled = false;
-
-    doUnusedResourceCheck = true;
-    currentResourceMapIndex = 0;
-    hasValidNextResourceMap = false;
-    isResourceClearRequested = false;
-    currentResourceMap = &resourceMaps[0];
-    nextResourceMap = &resourceMaps[1];
-
-    modelMatrixStack.reserve(16);
-    viewTransform.setIdentity();
-    projectionMatrix.setIdentity();
-
-    depthBufferForOverlay = 0;
-    needToUpdateOverlayDepthBufferSize = true;
-
-    lightingMode = GLSceneRenderer::FULL_LIGHTING;
-    defaultSmoothShading = true;
-    defaultMaterial = new SgMaterial;
-    defaultPointSize = 1.0f;
-    defaultLineWidth = 1.0f;
-    minTransparency = 0.0f;
-    isTextureEnabled = true;
-
-    isNormalVisualizationEnabled = false;
-    normalVisualizationLength = 0.0f;
-    normalVisualizationMaterial = new SgMaterial;
-    normalVisualizationMaterial->setDiffuseColor(Vector3f(0.0f, 1.0f, 0.0f));
-
-    isUpsideDownEnabled = false;
-
-    stateFlag.resize(NUM_STATE_FLAGS, false);
-
-    backFaceCullingMode = GLSceneRenderer::ENABLE_BACK_FACE_CULLING;
-
-    pickedPoint.setZero();
-
-    clearGLState();
-
-    os_ = &nullout();
-
-    renderingFunctions.setFunction<SgGroup>(
-        [&](SgGroup* node){ renderGroup(node); });
-    renderingFunctions.setFunction<SgTransform>(
-        [&](SgTransform* node){ renderTransform(node); });
-    renderingFunctions.setFunction<SgAutoScale>(
-        [&](SgAutoScale* node){ renderAutoScale(node); });
-    renderingFunctions.setFunction<SgSwitchableGroup>(
-        [&](SgSwitchableGroup* node){ renderSwitchableGroup(node); });
-    renderingFunctions.setFunction<SgUnpickableGroup>(
-        [&](SgUnpickableGroup* node){ renderUnpickableGroup(node); });
-    renderingFunctions.setFunction<SgShape>(
-        [&](SgShape* node){ renderShape(node); });
-    renderingFunctions.setFunction<SgPointSet>(
-        [&](SgPointSet* node){ renderPointSet(node); });
-    renderingFunctions.setFunction<SgLineSet>(
-        [&](SgLineSet* node){ renderLineSet(node); });
-    renderingFunctions.setFunction<SgTransparentGroup>(
-        [&](SgTransparentGroup* node){ renderTransparentGroup(node); });
-    renderingFunctions.setFunction<SgOverlay>(
-        [&](SgOverlay* node){ renderOverlay(node); });
-    renderingFunctions.setFunction<SgViewportOverlay>(
-        [&](SgViewportOverlay* node){ renderViewportOverlay(node); });
-    renderingFunctions.setFunction<SgOutline>(
-        [&](SgOutline* node){ renderOutline(node); });
-    renderingFunctions.setFunction<SgLightweightRenderingGroup>(
-        [&](SgLightweightRenderingGroup* node){ renderLightweightRenderingGroup(node); });
-
-    self->applyExtensions();
-    renderingFunctions.updateDispatchTable();
-}
-
-
 GLSLSceneRenderer::~GLSLSceneRenderer()
 {
     std::lock_guard<std::mutex> guard(extensionMutex);
@@ -553,19 +462,8 @@ GLSLSceneRenderer::~GLSLSceneRenderer()
 
 GLSLSceneRenderer::Impl::~Impl()
 {
-    // clear handles to avoid the deletion of them without the corresponding GL context
-    for(int i=0; i < 2; ++i){
-        GLResourceMap& resourceMap = resourceMaps[i];
-        for(GLResourceMap::iterator p = resourceMap.begin(); p != resourceMap.end(); ++p){
-            GLResource* resource = p->second;
-            resource->discard();
-        }
-    }
-
-    if(fboForPicking){
-        glDeleteRenderbuffers(1, &colorBufferForPicking);
-        glDeleteRenderbuffers(1, &depthBufferForPicking);
-        glDeleteFramebuffers(1, &fboForPicking);
+    if(!isGLCleared){
+        clearGL(false, false, true);
     }
 }
 
@@ -617,6 +515,86 @@ bool GLSLSceneRenderer::applyNewExtensions()
 }
 
 
+void GLSLSceneRenderer::Impl::initialize()
+{
+    {
+        std::lock_guard<std::mutex> guard(extensionMutex);
+        renderers.insert(self);
+    }
+
+    os_ = &nullout();
+
+    renderingFunctions.setFunction<SgGroup>(
+        [&](SgGroup* node){ renderGroup(node); });
+    renderingFunctions.setFunction<SgTransform>(
+        [&](SgTransform* node){ renderTransform(node); });
+    renderingFunctions.setFunction<SgAutoScale>(
+        [&](SgAutoScale* node){ renderAutoScale(node); });
+    renderingFunctions.setFunction<SgSwitchableGroup>(
+        [&](SgSwitchableGroup* node){ renderSwitchableGroup(node); });
+    renderingFunctions.setFunction<SgUnpickableGroup>(
+        [&](SgUnpickableGroup* node){ renderUnpickableGroup(node); });
+    renderingFunctions.setFunction<SgShape>(
+        [&](SgShape* node){ renderShape(node); });
+    renderingFunctions.setFunction<SgPointSet>(
+        [&](SgPointSet* node){ renderPointSet(node); });
+    renderingFunctions.setFunction<SgLineSet>(
+        [&](SgLineSet* node){ renderLineSet(node); });
+    renderingFunctions.setFunction<SgTransparentGroup>(
+        [&](SgTransparentGroup* node){ renderTransparentGroup(node); });
+    renderingFunctions.setFunction<SgOverlay>(
+        [&](SgOverlay* node){ renderOverlay(node); });
+    renderingFunctions.setFunction<SgViewportOverlay>(
+        [&](SgViewportOverlay* node){ renderViewportOverlay(node); });
+    renderingFunctions.setFunction<SgOutline>(
+        [&](SgOutline* node){ renderOutline(node); });
+    renderingFunctions.setFunction<SgLightweightRenderingGroup>(
+        [&](SgLightweightRenderingGroup* node){ renderLightweightRenderingGroup(node); });
+
+    self->applyExtensions();
+    renderingFunctions.updateDispatchTable();
+
+    renderingFrameId = 1;
+    isRenderingVisibleImage = false;
+    isRenderingPickingImage = false;
+    isPickingImageOutputEnabled = false;
+    isShadowCastingEnabled = true;
+    isRenderingShadowMap = false;
+    isLowMemoryConsumptionMode = false;
+    isBoundingBoxRenderingMode = false;
+    isBoundingBoxRenderingForLightweightRenderingGroupEnabled = false;
+
+    doUnusedResourceCheck = true;
+
+    modelMatrixStack.reserve(16);
+    viewTransform.setIdentity();
+    projectionMatrix.setIdentity();
+
+    lightingMode = GLSceneRenderer::FULL_LIGHTING;
+    defaultSmoothShading = true;
+    defaultMaterial = new SgMaterial;
+    defaultPointSize = 1.0f;
+    defaultLineWidth = 1.0f;
+    minTransparency = 0.0f;
+    isTextureEnabled = true;
+
+    isNormalVisualizationEnabled = false;
+    normalVisualizationLength = 0.0f;
+    normalVisualizationMaterial = new SgMaterial;
+    normalVisualizationMaterial->setDiffuseColor(Vector3f(0.0f, 1.0f, 0.0f));
+
+    isUpsideDownEnabled = false;
+
+    stateFlag.resize(NUM_STATE_FLAGS, false);
+
+    backFaceCullingMode = GLSceneRenderer::ENABLE_BACK_FACE_CULLING;
+
+    pickedPoint.setZero();
+
+    clearGL(false, true, false);
+}
+
+
 SceneRenderer::NodeFunctionSet* GLSLSceneRenderer::renderingFunctions()
 {
     return &impl->renderingFunctions;
@@ -630,10 +608,87 @@ void GLSLSceneRenderer::setOutputStream(std::ostream& os)
 }
 
 
-void GLSLSceneRenderer::Impl::updateDefaultFramebufferObject()
+void GLSLSceneRenderer::clearGL()
 {
-    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, reinterpret_cast<GLint*>(&defaultFBO));
-    phongShadowLightingProgram.setDefaultFramebufferObject(defaultFBO);
+    if(!impl->isGLCleared){
+        impl->clearGL(true, false, false);
+    }
+}
+
+
+void GLSLSceneRenderer::Impl::clearGL(bool isGLContextActive, bool isCalledFromConstructor, bool isCalledFromDestructor)
+{
+    if(!isGLContextActive && !isCalledFromConstructor){
+        // clear handles to avoid the deletion of them without the corresponding GL context
+        for(int i=0; i < 2; ++i){
+            GLResourceMap& resourceMap = resourceMaps[i];
+            for(GLResourceMap::iterator p = resourceMap.begin(); p != resourceMap.end(); ++p){
+                GLResource* resource = p->second;
+                resource->discard();
+            }
+        }
+    }
+
+    if(!isCalledFromDestructor){
+        clearResourceMap();
+    }
+
+    if(isGLContextActive && !isCalledFromConstructor){
+        nolightingProgram->release();
+        solidColorProgram->release();
+        minimumLightingProgram->release();
+        phongLightingProgram->release();
+        if(isShadowCastingEnabled){
+            phongShadowLightingProgram->release();
+        }
+        if(fboForPicking){
+            glDeleteRenderbuffers(1, &colorBufferForPicking);
+            glDeleteRenderbuffers(1, &depthBufferForPicking);
+            glDeleteFramebuffers(1, &fboForPicking);
+        }
+        if(depthBufferForOverlay){
+            glDeleteRenderbuffers(1, &depthBufferForOverlay);
+        }
+    }
+
+    if(!isCalledFromDestructor){
+        currentProgram = nullptr;
+        currentNolightingProgram = nullptr;
+        currentLightingProgram = nullptr;
+        currentMaterialLightingProgram = nullptr;
+
+        nolightingProgram.reset(new NolightingProgram);
+        solidColorProgram.reset(new SolidColorProgram);
+        minimumLightingProgram.reset(new MinimumLightingProgram);
+        phongLightingProgram.reset(new PhongLightingProgram);
+        phongShadowLightingProgram.reset(new PhongShadowLightingProgram);
+    
+        defaultFBO = 0;
+        depthBufferForOverlay = 0;
+        needToUpdateOverlayDepthBufferSize = true;
+        fboForPicking = 0;
+        colorBufferForPicking = 0;
+        depthBufferForPicking = 0;
+        pickingImageWidth = 0;
+        pickingImageHeight = 0;
+
+        clearGLState();
+
+        isGLCleared = true;
+    }
+}
+
+
+void GLSLSceneRenderer::Impl::clearResourceMap()
+{
+    resourceMaps[0].clear();
+    resourceMaps[1].clear();
+    currentResourceMapIndex = 0;
+    hasValidNextResourceMap = false;
+    isCheckingUnusedResources = false;
+    isResourceClearRequested = false;
+    currentResourceMap = &resourceMaps[0];
+    nextResourceMap = &resourceMaps[1];
 }
 
 
@@ -652,21 +707,21 @@ bool GLSLSceneRenderer::Impl::initializeGL()
     GLint major, minor;
     glGetIntegerv(GL_MAJOR_VERSION, &major);
     glGetIntegerv(GL_MINOR_VERSION, &minor);
-    const GLubyte* version = glGetString(GL_VERSION);
-    const GLubyte* vendor = glGetString(GL_VENDOR);
-    const GLubyte* renderer = glGetString(GL_RENDERER);
-    const GLubyte* glsl = glGetString(GL_SHADING_LANGUAGE_VERSION);
+    glVersionString = (const char*)glGetString(GL_VERSION);
+    glVendorString = (const char*)glGetString(GL_VENDOR);
+    glRendererString = (const char*)glGetString(GL_RENDERER);
+    glslVersionString = (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION);
 
     os() << fmt::format(_("OpenGL {0}.{1} ({2} {3}, GLSL {4}) is available for the \"{5}\" view.\n"),
-                        major, minor, vendor, renderer, glsl, self->name());
+                        major, minor, glVendorString, glRendererString, glslVersionString, self->name());
 
-    std::cmatch match;
+    std::smatch match;
 
     // Check the Intel GPU
-    if(regex_match((const char*)renderer, match, regex("Mesa DRI Intel\\(R\\) (\\S+).*$"))){
+    if(regex_match(glRendererString, match, regex("Mesa DRI Intel\\(R\\) (\\S+).*$"))){
         if(match.str(1) == "Sandybridge"){
             isShadowCastingEnabled = false;
-        } else if(regex_match((const char*)version, match, regex(".*Mesa (\\d+)\\.(\\d+)\\.(\\d+).*$"))){
+        } else if(regex_match(glVersionString, match, regex(".*Mesa (\\d+)\\.(\\d+)\\.(\\d+).*$"))){
             int mesaMajor = stoi(match.str(1));
             if(mesaMajor >= 19){
                 isShadowCastingEnabled = false;
@@ -674,17 +729,16 @@ bool GLSLSceneRenderer::Impl::initializeGL()
         }
     }
     // Check if the GPU is AMD's Radeon GPU
-    else if(regex_match((const char*)renderer, regex("AMD Radeon.*"))){
+    else if(regex_match(glRendererString, regex("AMD Radeon.*"))){
         isShadowCastingEnabled = false;
     }
     // CHeck if the VMWare's virtual driver is used
-    else if(regex_match((const char*)vendor, regex("VMware, Inc\\..*"))){
+    else if(regex_match(glVendorString, regex("VMware, Inc\\..*"))){
         isShadowCastingEnabled = false;
     }
     // Check if the GPU driver is Nouveau
-    else if(regex_match((const char*)vendor, regex(".*nouveau.*"))){
+    else if(regex_match(glVendorString, regex(".*nouveau.*"))){
         isShadowCastingEnabled = false;
-
     }
 
     if(!isShadowCastingEnabled){
@@ -692,16 +746,24 @@ bool GLSLSceneRenderer::Impl::initializeGL()
     }
     
     os().flush();
-    
+
+    return initializeGLForRendering();
+}
+
+
+bool GLSLSceneRenderer::Impl::initializeGLForRendering()
+{
+    isGLCleared = false;
+
     updateDefaultFramebufferObject();
 
     try {
-        nolightingProgram.initialize();
-        solidColorProgram.initialize();
-        minimumLightingProgram.initialize();
-        phongLightingProgram.initialize();
+        nolightingProgram->initialize();
+        solidColorProgram->initialize();
+        minimumLightingProgram->initialize();
+        phongLightingProgram->initialize();
         if(isShadowCastingEnabled){
-            phongShadowLightingProgram.initialize();
+            phongShadowLightingProgram->initialize();
         }
     }
     catch(std::runtime_error& error){
@@ -718,6 +780,18 @@ bool GLSLSceneRenderer::Impl::initializeGL()
     isCurrentFogUpdated = false;
 
     return true;
+}
+
+const std::string& GLSLSceneRenderer::glVendor() const
+{
+    return impl->glVendorString;
+}
+
+
+void GLSLSceneRenderer::Impl::updateDefaultFramebufferObject()
+{
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, reinterpret_cast<GLint*>(&defaultFBO));
+    phongShadowLightingProgram->setDefaultFramebufferObject(defaultFBO);
 }
 
 
@@ -825,9 +899,10 @@ void GLSLSceneRenderer::Impl::pushProgram(ShaderProgram& program)
     programStack.emplace_back(program, this);
 }
 
+
 void GLSLSceneRenderer::pushShaderProgram(ShaderProgram& program)
 {
-    impl->pushProgram(program);
+    impl->programStack.emplace_back(program, impl);
 }
 
 
@@ -851,7 +926,11 @@ void GLSLSceneRenderer::doRender()
 
 void GLSLSceneRenderer::Impl::doRender()
 {
-    updateDefaultFramebufferObject();
+    if(isGLCleared){
+        initializeGLForRendering();
+    } else {
+        updateDefaultFramebufferObject();
+    }
     
     if(self->applyNewExtensions()){
         renderingFunctions.updateDispatchTable();
@@ -867,15 +946,15 @@ void GLSLSceneRenderer::Impl::doRender()
     switch(lightingMode){
 
     case GLSceneRenderer::NO_LIGHTING:
-        pushProgram(nolightingProgram);
+        pushProgram(*nolightingProgram);
         break;
 
     case GLSceneRenderer::SOLID_COLOR_LIGHTING:
-        pushProgram(solidColorProgram);
+        pushProgram(*solidColorProgram);
         break;
 
     case GLSceneRenderer::MINIMUM_LIGHTING:
-        pushProgram(minimumLightingProgram);
+        pushProgram(*minimumLightingProgram);
         isLightweightRenderingBeingProcessed = true;
         isLowMemoryConsumptionRenderingBeingProcessed = true;
         break;
@@ -886,7 +965,7 @@ void GLSLSceneRenderer::Impl::doRender()
 
     case GLSceneRenderer::NORMAL_LIGHTING:
     default:
-        pushProgram(phongLightingProgram);
+        pushProgram(*phongLightingProgram);
         isTextureBeingRendered = isTextureEnabled;
         break;
     }
@@ -920,13 +999,13 @@ void GLSLSceneRenderer::Impl::setupFullLightingRendering()
 
     if(shadowLightIndices.empty() || !isShadowCastingEnabled){
         // Same as NORMAL_LIGHTING
-        pushProgram(phongLightingProgram);
+        pushProgram(*phongLightingProgram);
             
     } else {
         isRenderingVisibleImage = false;
         isRenderingShadowMap = true;
 
-        auto& program = phongShadowLightingProgram;
+        auto& program = *phongShadowLightingProgram;
 
         int w, h;
         program.getShadowMapSize(w, h);
@@ -968,6 +1047,10 @@ bool GLSLSceneRenderer::doPick(int x, int y)
 
 bool GLSLSceneRenderer::Impl::doPick(int x, int y)
 {
+    if(isGLCleared){
+        initializeGLForRendering();
+    }
+    
     int vx, vy, width, height;
     self->getViewport(vx, vy, width, height);
 
@@ -1007,7 +1090,7 @@ bool GLSLSceneRenderer::Impl::doPick(int x, int y)
     isRenderingPickingImage = true;
     isRenderingVisibleImage = false;
     beginRendering();
-    pushProgram(solidColorProgram);
+    pushProgram(*solidColorProgram);
     currentNodePath.clear();
     pickingNodePathList.clear();
     overlayPickIndex0 = std::numeric_limits<int>::max();
@@ -1113,10 +1196,10 @@ bool GLSLSceneRenderer::Impl::renderShadowMap(int lightIndex)
     Affine3 T;
     self->getLightInfo(lightIndex, light, T);
     if(light && light->on()){
-        SgCamera* shadowMapCamera = phongShadowLightingProgram.getShadowMapCamera(light, T);
+        SgCamera* shadowMapCamera = phongShadowLightingProgram->getShadowMapCamera(light, T);
         if(shadowMapCamera){
             renderCamera(shadowMapCamera, T);
-            phongShadowLightingProgram.setShadowMapViewProjection(PV);
+            phongShadowLightingProgram->setShadowMapViewProjection(PV);
             renderSceneGraphNodes();
             glFlush();
             glFinish();
@@ -1172,11 +1255,7 @@ void GLSLSceneRenderer::Impl::beginRendering()
     isCheckingUnusedResources = isRenderingPickingImage ? false : doUnusedResourceCheck;
 
     if(isResourceClearRequested){
-        resourceMaps[0].clear();
-        resourceMaps[1].clear();
-        hasValidNextResourceMap = false;
-        isCheckingUnusedResources = false;
-        isResourceClearRequested = false; 
+        clearResourceMap();
     }
     if(hasValidNextResourceMap){
         currentResourceMapIndex = 1 - currentResourceMapIndex;
@@ -1438,7 +1517,7 @@ inline void GLSLSceneRenderer::Impl::setPickColor(int pickIndex)
     if(isPickingImageOutputEnabled){
         color[2] = 1.0f;
     }
-    solidColorProgram.setColor(color);
+    solidColorProgram->setColor(color);
 }
         
 
@@ -2318,7 +2397,7 @@ void GLSLSceneRenderer::Impl::renderPointSet(SgPointSet* pointSet)
         return;
     }
 
-    ScopedShaderProgramActivator programActivator(solidColorProgram, this);
+    ScopedShaderProgramActivator programActivator(*solidColorProgram, this);
 
     const double s = pointSet->pointSize();
     if(s > 0.0){
@@ -2340,12 +2419,12 @@ void GLSLSceneRenderer::Impl::renderPlot
     bool hasColors = plot->hasColors();
     
     if(isRenderingPickingImage){
-        solidColorProgram.setVertexColorEnabled(false);
+        solidColorProgram->setVertexColorEnabled(false);
     } else {
         if(!hasColors){
             renderMaterial(plot->material());
         } else {
-            solidColorProgram.setVertexColorEnabled(true);
+            solidColorProgram->setVertexColorEnabled(true);
         }
     }
     
@@ -2435,7 +2514,7 @@ void GLSLSceneRenderer::Impl::renderLineSet(SgLineSet* lineSet)
         return;
     }
 
-    ScopedShaderProgramActivator programActivator(solidColorProgram, this);
+    ScopedShaderProgramActivator programActivator(*solidColorProgram, this);
     
     const double w = lineSet->lineWidth();
     if(w > 0.0){
@@ -2458,8 +2537,8 @@ void GLSLSceneRenderer::Impl::renderTransparentGroup(SgTransparentGroup* transpa
         minTransparency = transparency;
         transparentRenderingQueue.emplace_back(
             [this, transparency](){
-                phongLightingProgram.setMinimumTransparency(transparency);
-                phongShadowLightingProgram.setMinimumTransparency(transparency);
+                phongLightingProgram->setMinimumTransparency(transparency);
+                phongShadowLightingProgram->setMinimumTransparency(transparency);
             });
     }
 
@@ -2469,8 +2548,8 @@ void GLSLSceneRenderer::Impl::renderTransparentGroup(SgTransparentGroup* transpa
         minTransparency = prevMinTransparency;
         transparentRenderingQueue.emplace_back(
             [this, prevMinTransparency](){
-                phongLightingProgram.setMinimumTransparency(prevMinTransparency);
-                phongShadowLightingProgram.setMinimumTransparency(prevMinTransparency);
+                phongLightingProgram->setMinimumTransparency(prevMinTransparency);
+                phongShadowLightingProgram->setMinimumTransparency(prevMinTransparency);
             });
     }
 }
@@ -2520,7 +2599,7 @@ void GLSLSceneRenderer::Impl::renderViewportOverlayMain(SgViewportOverlay* overl
 
     pickedNodePath.clear();
 
-    ScopedShaderProgramActivator programActivator(solidColorProgram, this);
+    ScopedShaderProgramActivator programActivator(*solidColorProgram, this);
     
     renderOverlayMain(overlay, Affine3::Identity(), emptyNodePath);
 
@@ -2553,7 +2632,7 @@ void GLSLSceneRenderer::Impl::renderOutlineEdge(SgOutline* outline, const Affine
     glDisable(GL_DEPTH_TEST);
     
     {
-        ScopedShaderProgramActivator programActivator(nolightingProgram, this);
+        ScopedShaderProgramActivator programActivator(*nolightingProgram, this);
 
         glStencilFunc(GL_ALWAYS, 1, -1);
         glStencilOp(GL_KEEP, GL_REPLACE, GL_REPLACE);
@@ -2563,9 +2642,9 @@ void GLSLSceneRenderer::Impl::renderOutlineEdge(SgOutline* outline, const Affine
     }
 
     {
-        ScopedShaderProgramActivator programActivator(solidColorProgram, this);
-        solidColorProgram.setColor(outline->color());
-        solidColorProgram.setColorChangable(false);
+        ScopedShaderProgramActivator programActivator(*solidColorProgram, this);
+        solidColorProgram->setColor(outline->color());
+        solidColorProgram->setColorChangable(false);
 
         glStencilFunc(GL_NOTEQUAL, 1, -1);
         glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
@@ -2585,7 +2664,7 @@ void GLSLSceneRenderer::Impl::renderOutlineEdge(SgOutline* outline, const Affine
         glPolygonMode(GL_FRONT_AND_BACK, polygonMode[0]);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
-        solidColorProgram.setColorChangable(true);
+        solidColorProgram->setColorChangable(true);
     }
 
     glDisable(GL_STENCIL_TEST);
@@ -2608,9 +2687,9 @@ void GLSLSceneRenderer::Impl::renderLightweightRenderingGroup(SgLightweightRende
 
     bool pushed = false;
     if(currentLightingProgram){
-        pushProgram(minimumLightingProgram);
+        pushProgram(*minimumLightingProgram);
         if(!isLightweightRenderingBeingProcessed){
-            renderLights(&minimumLightingProgram);
+            renderLights(minimumLightingProgram.get());
         }
         pushed = true;
     }
@@ -2645,7 +2724,7 @@ void GLSLSceneRenderer::Impl::clearGLState()
 
 void GLSLSceneRenderer::setColor(const Vector3f& color)
 {
-    impl->solidColorProgram.setColor(color);
+    impl->solidColorProgram->setColor(color);
 }
 
 
@@ -2667,7 +2746,7 @@ void GLSLSceneRenderer::enableShadowOfLight(int index, bool on)
 
 void GLSLSceneRenderer::enableShadowAntiAliasing(bool on)
 {
-    impl->phongShadowLightingProgram.setShadowAntiAliasingEnabled(on);
+    impl->phongShadowLightingProgram->setShadowAntiAliasingEnabled(on);
 }
 
 
@@ -2675,7 +2754,7 @@ void GLSLSceneRenderer::Impl::setPointSize(float size)
 {
     if(!stateFlag[POINT_SIZE] || pointSize != size){
         float s = isRenderingPickingImage ? std::max(size, MinLineWidthForPicking) : size;
-        solidColorProgram.setPointSize(s);
+        solidColorProgram->setPointSize(s);
         pointSize = s;
         stateFlag[POINT_SIZE] = true;
     }

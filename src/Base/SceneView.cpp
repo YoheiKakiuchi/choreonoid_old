@@ -115,7 +115,8 @@ SceneViewImpl::SceneViewImpl(SceneView* self)
 {
     self->setDefaultLayoutArea(View::RIGHT);
     
-    sceneWidget = new SceneWidget;
+    sceneWidget = new SceneWidget(self);
+    //sceneWidget->activate();
     scene = sceneWidget->scene();
     sceneWidget->setObjectName(self->windowTitle());
     self->sigWindowTitleChanged().connect(
@@ -171,18 +172,6 @@ SceneViewImpl::~SceneViewImpl()
     if(instances.empty()){
         finalizeClass();
     }
-}
-
-
-void SceneView::onActivated()
-{
-
-}
-
-
-void SceneView::onDeactivated()
-{
-
 }
 
 

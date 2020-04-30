@@ -44,7 +44,6 @@
 #include <QPainter>
 #include <fmt/format.h>
 #include <set>
-#include <iostream>
 #include "gettext.h"
 
 #ifdef _WIN32
@@ -222,6 +221,9 @@ public:
     SgUnpickableGroupPtr systemGroup;
     SgGroup* scene;
     GLSceneRenderer* renderer;
+    GLSLSceneRenderer* glslRenderer;
+    GLuint prevDefaultFramebufferObject;
+    bool needToClearGLOnFrameBufferChange;
     LazyCaller extractPreprocessedNodesLater;
     SgUpdate modified;
     SgUpdate added;
@@ -322,17 +324,14 @@ public:
 
     void onVSyncModeChanged();
     void onLowMemoryConsumptionModeChanged(bool on);
-
-    virtual void initializeGL();
-    virtual void resizeGL(int width, int height);
-    virtual void paintGL();
-
     void tryToResumeNormalRendering();
-
     void updateGrids();
     SgLineSet* createGrid(int index);
 
     void onSceneGraphUpdated(const SgUpdate& update);
+    virtual void initializeGL() override;
+    virtual void resizeGL(int width, int height) override;
+    virtual void paintGL() override;
 
     void showFPS(bool on);
     void onFPSTestButtonClicked();
@@ -385,16 +384,16 @@ public:
     bool setFocusToPointedEditablePath(SceneWidgetEditable* targetEditable);
     void clearFocusToEditables();
 
-    virtual void keyPressEvent(QKeyEvent* event);
-    virtual void keyReleaseEvent(QKeyEvent* event);
-    virtual void mousePressEvent(QMouseEvent* event);
-    virtual void mouseDoubleClickEvent(QMouseEvent* event);
-    virtual void mouseMoveEvent(QMouseEvent* event);
+    virtual void keyPressEvent(QKeyEvent* event) override;
+    virtual void keyReleaseEvent(QKeyEvent* event) override;
+    virtual void mousePressEvent(QMouseEvent* event) override;
+    virtual void mouseDoubleClickEvent(QMouseEvent* event) override;
+    virtual void mouseMoveEvent(QMouseEvent* event) override;
     void updatePointerPosition();
-    virtual void mouseReleaseEvent(QMouseEvent* event);
-    virtual void wheelEvent(QWheelEvent* event);
-    virtual void focusInEvent(QFocusEvent* event);
-    virtual void focusOutEvent(QFocusEvent* event);
+    virtual void mouseReleaseEvent(QMouseEvent* event) override;
+    virtual void wheelEvent(QWheelEvent* event) override;
+    virtual void focusInEvent(QFocusEvent* event) override;
+    virtual void focusOutEvent(QFocusEvent* event) override;
 
     Affine3 getNormalizedCameraTransform(const Affine3& T);
     void startViewChange();
@@ -415,7 +414,6 @@ public:
 
     void activateSystemNode(SgNode* node, bool on);
 
-    bool saveImage(const std::string& filename);
     void setScreenSize(int width, int height);
     void updateIndicator(const std::string& text);
     bool storeState(Archive& archive);
@@ -519,14 +517,10 @@ void SceneWidget::forEachInstance(SgNode* node, std::function<void(SceneWidget* 
 }
 
 
-SceneWidget::SceneWidget()
+SceneWidget::SceneWidget(QWidget* parent)
+    : Widget(parent)
 {
     impl = new SceneWidgetImpl(this);
-
-    QVBoxLayout* vbox = new QVBoxLayout;
-    vbox->setContentsMargins(0, 0, 0, 0);
-    vbox->addWidget(impl);
-    setLayout(vbox);
 
     ::sigSceneWidgetCreated(this);
 }
@@ -542,9 +536,15 @@ SceneWidgetImpl::SceneWidgetImpl(SceneWidget* self)
       updateGridsLater([this](){ updateGrids(); })
 {
     setFocusPolicy(Qt::WheelFocus);
+    
+    auto vbox = new QVBoxLayout;
+    vbox->setContentsMargins(0, 0, 0, 0);
+    vbox->addWidget(this);
+    self->setLayout(vbox);
 
     renderer = GLSceneRenderer::create(sceneRoot);
-    if(auto glslRenderer = dynamic_cast<GLSLSceneRenderer*>(renderer)){
+    glslRenderer = dynamic_cast<GLSLSceneRenderer*>(renderer);
+    if(glslRenderer ){
         glslRenderer->setLowMemoryConsumptionMode(isLowMemoryConsumptionMode);
     }
         
@@ -553,12 +553,12 @@ SceneWidgetImpl::SceneWidgetImpl(SceneWidget* self)
     renderer->sigRenderingRequest().connect([&](){ update(); });
     renderer->sigCamerasChanged().connect([&](){ onCamerasChanged(); });
     renderer->sigCurrentCameraChanged().connect([&](){ onCurrentCameraChanged(); });
-
     self->sigObjectNameChanged().connect([this](string name){ renderer->setName(name); });
-
     sceneRoot->sigUpdated().connect([this](const SgUpdate& update){ onSceneGraphUpdated(update); });
 
     scene = renderer->scene();
+    prevDefaultFramebufferObject = 0;
+    needToClearGLOnFrameBufferChange = false;
 
     extractPreprocessedNodesLater.setFunction([&](){ renderer->extractPreprocessedNodes(); });
 
@@ -572,7 +572,7 @@ SceneWidgetImpl::SceneWidgetImpl(SceneWidget* self)
 
     setAutoFillBackground(false);
     setMouseTracking(true);
-
+    
     needToUpdateViewportInformation = true;
     isEditMode = false;
     viewpointControlMode.resize(2);
@@ -746,7 +746,14 @@ void SceneWidgetImpl::initializeGL()
         os << "SceneWidgetImpl::initializeGL()" << endl;
     }
 
-    if(!renderer->initializeGL()){
+    if(renderer->initializeGL()){
+        if(glslRenderer){
+            auto& vendor = glslRenderer->glVendor();
+            if(vendor.find("NVIDIA Corporation") != string::npos){
+                needToClearGLOnFrameBufferChange = true;
+            }
+        }
+    } else {
         os << "OpenGL initialization failed." << endl;
         // This view shoulbe be disabled when the glew initialization is failed.
     }
@@ -805,6 +812,29 @@ void SceneWidgetImpl::paintGL()
     if(TRACE_FUNCTIONS){
         static int counter = 0;
         os << "SceneWidgetImpl::paintGL() " << counter++ << endl;
+    }
+
+    /**
+       For NVIDIA GPUs, GLSLSceneRenderer may not be able to render properly
+       when the placement or some other configurations of QOpenGLWidget used
+       with the renderer change. To avoid the problem, the OpenGL resources
+       used in the renderer should be cleared when the changes occur, and the
+       resources should be recreated in the new configurations. This is done
+       by the following code. The configuration changes can be detected by
+       checking the ID of the default frame buffer object.
+
+       \todo The view layout change in loading a project should be done before
+       loading any items to avoid unnecessary re-initializations of the OpenGL
+       resources to reduce the overhead.
+    */
+    if(needToClearGLOnFrameBufferChange){
+        auto newFramebuffer = defaultFramebufferObject();
+        if(prevDefaultFramebufferObject > 0 && newFramebuffer != prevDefaultFramebufferObject){
+            renderer->clearGL();
+            os << fmt::format(_("The OpenGL resources of {0} has been cleared."),
+                              self->objectName().toStdString()) << endl;
+        }
+        prevDefaultFramebufferObject = newFramebuffer;
     }
 
     if(needToUpdateViewportInformation){
@@ -958,7 +988,7 @@ void SceneWidget::setCursor(const QCursor cursor)
 
 void SceneWidgetImpl::resetCursor()
 {
-    setCursor(isEditMode ? editModeCursor : defaultCursor);
+    self->setCursor(isEditMode ? editModeCursor : defaultCursor);
 }
 
 
@@ -2057,7 +2087,7 @@ void SceneWidgetImpl::translateBuiltinCameraView(const Vector3& dp_local)
 
 void SceneWidgetImpl::showViewModePopupMenu(const QPoint& globalPos)
 {
-    menuManager.setNewPopupMenu(this);
+    menuManager.setNewPopupMenu(self);
     
     sigContextMenuRequest(latestEvent, menuManager);
 
@@ -2070,7 +2100,7 @@ void SceneWidgetImpl::showViewModePopupMenu(const QPoint& globalPos)
 
 void SceneWidgetImpl::showEditModePopupMenu(const QPoint& globalPos)
 {
-    menuManager.setNewPopupMenu(this);
+    menuManager.setNewPopupMenu(self);
 
     int prevNumItems = 0;
 
@@ -2624,13 +2654,7 @@ QVBoxLayout* SceneWidget::configDialogVBox()
 
 bool SceneWidget::saveImage(const std::string& filename)
 {
-    return impl->saveImage(filename);
-}
-
-
-bool SceneWidgetImpl::saveImage(const std::string& filename)
-{
-    return grabFramebuffer().save(filename.c_str());
+    return impl->grabFramebuffer().save(filename.c_str());
 }
 
 
@@ -3419,6 +3443,7 @@ ConfigDialog::ConfigDialog(SceneWidgetImpl* impl)
     upsideDownCheck.setChecked(false);
     upsideDownCheck.sigToggled().connect([=](bool on){ impl->onUpsideDownToggled(on); });
     hbox->addWidget(&upsideDownCheck);
+
     hbox->addStretch();
     vbox->addLayout(hbox);
 

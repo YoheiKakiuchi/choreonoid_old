@@ -29,7 +29,7 @@ public:
     static void initializeClass(ExtensionManager* ext);
     static SignalProxy<void(SceneWidget*)> sigSceneWidgetCreated();
 
-    SceneWidget();
+    SceneWidget(QWidget* parent);
     ~SceneWidget();
 
     static void forEachInstance(SgNode* node, std::function<void(SceneWidget* sceneWidget, const SgNodePath& path)> function);
