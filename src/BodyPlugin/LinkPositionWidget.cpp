@@ -9,7 +9,6 @@
 #include <cnoid/LinkKinematicsKit>
 #include <cnoid/CoordinateFrameList>
 #include <cnoid/BodyState>
-#include <cnoid/PositionEditManager>
 #include <cnoid/MenuManager>
 #include <cnoid/Archive>
 #include <cnoid/Buttons>
@@ -92,7 +91,6 @@ public:
     LinkPositionWidget* self;
 
     ScopedConnectionSet targetConnections;
-    enum TargetType { LinkTarget, PositionEditTarget } targetType;
     BodyItemPtr targetBodyItem;
     LinkPtr targetLink;
     int targetLinkType;
@@ -101,8 +99,7 @@ public:
     CoordinateFramePtr identityFrame;
     CoordinateFramePtr baseFrame;
     CoordinateFramePtr offsetFrame;
-    std::function<std::pair<std::string,std::string>(LinkKinematicsKit*)> functionToGetDefaultFrameNames;
-    AbstractPositionEditTarget* positionEditTarget;
+    FrameLabelFunction frameLabelFunction[2];
     
     QLabel resultLabel;
 
@@ -145,25 +142,23 @@ public:
     void updateCoordinateFrameCandidates();
     void updateCoordinateFrameCandidates(int frameComboIndex);
     void updateCoordinateFrameComboItems(
-        QComboBox& combo, CoordinateFrameList* frames, const GeneralId& currentId, const std::string& originLabel);
+        QComboBox& combo, CoordinateFrameList* frames, const GeneralId& currentId,
+        const FrameLabelFunction& frameLabelFunction);
+    string getFrameLabel(CoordinateFrame* frame, bool isDefaultFrame, const char* defaultFrameNote);
     void onFrameComboActivated(int frameComboIndex, int index);
     void onFrameUpdate();
     void setConfigurationInterfaceEnabled(bool on);
     void initializeConfigurationInterface();
     void showConfigurationDialog();
     void applyConfiguration(int id);
-    bool setPositionEditTarget(AbstractPositionEditTarget* target);
-    void onPositionEditTargetExpired();
     void onKinematicsKitPositionError(const Position& T_frameCoordinate);
     void updateDisplay();
     void updateDisplayWithPosition(const Position& position);
     void updateDisplayWithGlobalLinkPosition(const Position& Ta_global);
     void updateDisplayWithCurrentLinkPosition();
-    void updateDisplayWithPositionEditTarget();
     void updateConfigurationDisplay();
     bool applyPositionInput(const Position& T);
     bool findBodyIkSolution(const Position& T_input, bool isRawT);
-    bool applyInputToPositionEditTarget(const Position& T_input);
     bool storeState(Archive& archive);
     bool restoreState(const Archive& archive);
 };
@@ -185,15 +180,11 @@ LinkPositionWidget::Impl::Impl(LinkPositionWidget* self)
     createPanel();
     self->setEnabled(false);
     
-    targetType = LinkTarget;
-
     targetLinkType = RootOrIkLink;
     
     identityFrame = new CoordinateFrame;
     baseFrame = identityFrame;
     offsetFrame = identityFrame;
-
-    positionEditTarget = nullptr;
 }
 
 
@@ -272,7 +263,14 @@ void LinkPositionWidget::Impl::createPanel()
     grid->setColumnStretch(1, 1);
 
     frameComboLabel[BaseFrame].setText(_("Base"));
+    frameLabelFunction[BaseFrame] =
+        [&](LinkKinematicsKit* kit, CoordinateFrame* frame, bool isDefaultFrame){
+            return getFrameLabel(frame, isDefaultFrame, _("Body Origin")); };
+
     frameComboLabel[OffsetFrame].setText(_("Offset"));
+    frameLabelFunction[OffsetFrame] =
+        [&](LinkKinematicsKit* kit, CoordinateFrame* frame, bool isDefaultFrame){
+            return getFrameLabel(frame, isDefaultFrame, _("Link Origin")); };
 
     for(int i=0; i < 2; ++i){
         grid->addWidget(&frameComboLabel[i], row + i, 0, Qt::AlignLeft /* Qt::AlignJustify */);
@@ -305,7 +303,7 @@ void LinkPositionWidget::Impl::createPanel()
 }
 
 
-void LinkPositionWidget::setCoordinateModeLabels
+void LinkPositionWidget::customizeCoordinateModeLabels
 (const char* worldModeLabel, const char* baseModeLabel, const char* localModeLabel)
 {
     impl->worldCoordRadio.setText(worldModeLabel);
@@ -314,18 +312,17 @@ void LinkPositionWidget::setCoordinateModeLabels
 }
 
 
-void LinkPositionWidget::setCoordinateLabels
-(const char* baseCoordinateLabel, const char* offsetCoordinateLabel)
+void LinkPositionWidget::customizeBaseFrameLabels(const char* caption, FrameLabelFunction labelFunction)
 {
-    impl->frameComboLabel[BaseFrame].setText(baseCoordinateLabel);
-    impl->frameComboLabel[OffsetFrame].setText(offsetCoordinateLabel);
+    impl->frameComboLabel[BaseFrame].setText(caption);
+    impl->frameLabelFunction[BaseFrame] = labelFunction;
 }
 
 
-void LinkPositionWidget::customizeDefaultCoordinateFrameNames
-(std::function<std::pair<std::string,std::string>(LinkKinematicsKit*)> getNames)
+void LinkPositionWidget::customizeOffsetFrameLabels(const char* caption, FrameLabelFunction labelFunction)
 {
-    impl->functionToGetDefaultFrameNames = getNames;
+    impl->frameComboLabel[OffsetFrame].setText(caption);
+    impl->frameLabelFunction[OffsetFrame] = labelFunction;
 }
 
 
@@ -451,9 +448,8 @@ void LinkPositionWidget::setTargetBodyAndLink(BodyItem* bodyItem, Link* link)
 
 void LinkPositionWidget::Impl::setTargetBodyAndLink(BodyItem* bodyItem, Link* link)
 {
-    bool isTargetTypeChanged = (targetType != LinkTarget);
-    bool isBodyItemChanged = isTargetTypeChanged || (bodyItem != targetBodyItem);
-    bool isLinkChanged = isTargetTypeChanged || (link != targetLink);
+    bool isBodyItemChanged = (bodyItem != targetBodyItem);
+    bool isLinkChanged = (link != targetLink);
 
     // Sub body's root link is recognized as the parent body's end link
     if(bodyItem && link){
@@ -512,7 +508,6 @@ void LinkPositionWidget::Impl::setTargetBodyAndLink(BodyItem* bodyItem, Link* li
             }
         }
 
-        targetType = LinkTarget;
         updateTargetLink(link);
         updateDisplayWithCurrentLinkPosition();
     }
@@ -522,10 +517,6 @@ void LinkPositionWidget::Impl::setTargetBodyAndLink(BodyItem* bodyItem, Link* li
 void LinkPositionWidget::Impl::updateTargetLink(Link* link)
 {
     setCoordinateModeInterfaceEnabled(true);
-    
-    if(targetType != LinkTarget){
-        return;
-    }
     
     targetLink = link;
     kinematicsKit.reset();
@@ -554,11 +545,7 @@ void LinkPositionWidget::Impl::updateTargetLink(Link* link)
                 kinematicsKit->sigPositionError().connect(
                     [&](const Position& T_frameCoordinate){
                         onKinematicsKitPositionError(T_frameCoordinate); }));
-            
-            if(functionToGetDefaultFrameNames){
-                tie(defaultCoordName[BaseFrame], defaultCoordName[OffsetFrame]) =
-                    functionToGetDefaultFrameNames(kinematicsKit);
-            }
+
             hasBaseFrames = kinematicsKit->baseFrames();
             hasOffsetFrames = kinematicsKit->offsetFrames();
 
@@ -619,20 +606,16 @@ void LinkPositionWidget::Impl::updateCoordinateFrameCandidates(int frameComboInd
         }
     }
     updateCoordinateFrameComboItems(
-        frameCombo[frameComboIndex], frames, currentFrameId, defaultCoordName[frameComboIndex]);
+        frameCombo[frameComboIndex], frames, currentFrameId, frameLabelFunction[frameComboIndex]);
 }
 
 
 void LinkPositionWidget::Impl::updateCoordinateFrameComboItems
-(QComboBox& combo, CoordinateFrameList* frames, const GeneralId& currentId, const std::string& originLabel)
+(QComboBox& combo, CoordinateFrameList* frames, const GeneralId& currentId,
+ const FrameLabelFunction& frameLabelFunction)
 {
-    constexpr bool EnableToolTip = false;
-    
     combo.clear();
-    combo.addItem(QString("0: %1").arg(originLabel.c_str()), 0);
-    if(EnableToolTip){
-        combo.setItemData(0, QString(), Qt::ToolTipRole);
-    }
+
     int currentIndex = 0;
 
     if(frames){
@@ -641,16 +624,12 @@ void LinkPositionWidget::Impl::updateCoordinateFrameComboItems
             int index = combo.count();
             if(auto frame = frames->frameAt(i)){
                 auto& id = frame->id();
+                bool isDefaultFrame = (i == 0 && frames->hasFirstElementAsDefaultFrame());
+                string label = frameLabelFunction(kinematicsKit, frame, isDefaultFrame);
                 if(id.isInt()){
-                    combo.addItem(QString("%1: %2").arg(id.toInt()).arg(frame->note().c_str()), id.toInt());
-                    if(EnableToolTip){
-                        combo.setItemData(index, QString(), Qt::ToolTipRole);
-                    }
+                    combo.addItem(label.c_str(), id.toInt());
                 } else {
-                    combo.addItem(id.label().c_str(), id.toString().c_str());
-                    if(EnableToolTip){
-                        combo.setItemData(index, frame->note().c_str(), Qt::ToolTipRole);
-                    }
+                    combo.addItem(label.c_str(), id.toString().c_str());
                 }
                 if(id == currentId){
                     currentIndex = index;
@@ -660,6 +639,23 @@ void LinkPositionWidget::Impl::updateCoordinateFrameComboItems
     }
 
     combo.setCurrentIndex(currentIndex);
+}
+
+
+string LinkPositionWidget::Impl::getFrameLabel
+(CoordinateFrame* frame, bool isDefaultFrame, const char* defaultFrameNote)
+{
+    string label;
+    string note = frame->note();
+    if(note.empty() && isDefaultFrame){
+        note = defaultFrameNote;
+    }
+    if(note.empty()){
+        label = frame->id().label();
+    } else {
+        label = format("{0}: {1}", frame->id().label(), note.c_str());
+    }
+    return label;
 }
 
 
@@ -1028,48 +1024,6 @@ QSize ConfTreeWidget::sizeHint() const
 }
 
 
-bool LinkPositionWidget::setPositionEditTarget(AbstractPositionEditTarget* target)
-{
-    return impl->setPositionEditTarget(target);
-}
-
-
-bool LinkPositionWidget::Impl::setPositionEditTarget(AbstractPositionEditTarget* target)
-{
-    positionWidget->clearPosition();
-    targetConnections.disconnect();
-
-    targetType = PositionEditTarget;
-    positionEditTarget = target;
-    baseFrame = identityFrame;
-    offsetFrame = identityFrame;
-
-    targetConnections.add(
-        target->sigPositionChanged().connect(
-            [&](const Position&){ updateDisplayWithPositionEditTarget(); }));
-
-    targetConnections.add(
-        target->sigPositionEditTargetExpired().connect(
-            [&](){ onPositionEditTargetExpired(); }));
-
-    self->setEnabled(target->isEditable());
-    setCoordinateFrameInterfaceEnabled(false, false);
-    setConfigurationInterfaceEnabled(false);
-    setBodyCoordinateModeEnabled(false);
-    setCoordinateModeInterfaceEnabled(false);
-
-    updateDisplayWithPositionEditTarget();
-
-    return true;
-}
-
-
-void LinkPositionWidget::Impl::onPositionEditTargetExpired()
-{
-
-}
-
-
 void LinkPositionWidget::Impl::onKinematicsKitPositionError(const Position& T_frameCoordinate)
 {
     Position T_base;
@@ -1091,12 +1045,7 @@ void LinkPositionWidget::Impl::updateDisplay()
 {
     userInputConnections.block();
     
-    if(targetType == LinkTarget){
-        updateDisplayWithCurrentLinkPosition();
-
-    } else if(targetType == PositionEditTarget){
-        updateDisplayWithPositionEditTarget();
-    }
+    updateDisplayWithCurrentLinkPosition();
 
     userInputConnections.unblock();
 
@@ -1128,15 +1077,6 @@ void LinkPositionWidget::Impl::updateDisplayWithCurrentLinkPosition()
 {
     if(targetLink){
         updateDisplayWithGlobalLinkPosition(targetLink->Ta());
-    }
-}
-
-
-void LinkPositionWidget::Impl::updateDisplayWithPositionEditTarget()
-{
-    if(positionEditTarget){
-        positionWidget->setReferenceRpy(Vector3::Zero());
-        positionWidget->setPosition(positionEditTarget->getPosition());
     }
 }
 
@@ -1189,16 +1129,7 @@ void LinkPositionWidget::Impl::updateConfigurationDisplay()
 
 bool LinkPositionWidget::Impl::applyPositionInput(const Position& T)
 {
-    bool accepted = false;
-    
-    if(targetType == LinkTarget){
-        accepted = findBodyIkSolution(T, false);
-
-    } else if(targetType == PositionEditTarget){
-        accepted = applyInputToPositionEditTarget(T);
-    }
-
-    return accepted;
+    return findBodyIkSolution(T, false);
 }
 
 
@@ -1247,29 +1178,6 @@ bool LinkPositionWidget::Impl::findBodyIkSolution(const Position& T_input, bool 
     }
 
     return solved;
-}
-
-
-bool LinkPositionWidget::Impl::applyInputToPositionEditTarget(const Position& T_input)
-{
-    bool accepted = false;
-    
-    if(positionEditTarget){
-
-        targetConnections.block();
-        accepted = positionEditTarget->setPosition(T_input);
-        targetConnections.unblock();
-
-        if(accepted){
-            resultLabel.setText(_("Accepted"));
-            resultLabel.setStyleSheet(normalStyle);
-        } else {
-            resultLabel.setText(_("Not Accepted"));
-            resultLabel.setStyleSheet(errorStyle);
-        }
-    }
-
-    return accepted;
 }
 
 

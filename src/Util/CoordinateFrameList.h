@@ -9,16 +9,14 @@
 
 namespace cnoid {
 
-/**
-   \note Frame id 0 is reserved for the default identity frame, and any frame with id 0
-   cannot be inserted into the list. The createNextId function returns 1 as the first id.
-*/
 class CNOID_EXPORT CoordinateFrameList : public CloneableReferenced
 {
 public:
     CoordinateFrameList();
     CoordinateFrameList(const CoordinateFrameList& org);
     ~CoordinateFrameList();
+
+    CoordinateFrameList& operator=(const CoordinateFrameList& rhs);
 
     enum FrameType { Base, Offset };
     void setFrameType(int type) { frameType_ = type; }
@@ -28,18 +26,25 @@ public:
     
     const std::string& name() const;
     void setName(const std::string& name);
+
+    /**
+       This function set the flag to treat the first element as a special element called default frame.
+       In general, the default frame corresponds to the origin frame, and it is always kept even if
+       the clear function is executed. In addition, the default frame is not stored to the archive,
+       and it is forcibly restored by the system.
+    */
+    void setFirstElementAsDefaultFrame(bool on = true);
+    bool hasFirstElementAsDefaultFrame() const { return hasFirstElementAsDefaultFrame_; }
+    bool isDefaultFrameId(const GeneralId& id) const;
     
+    /**
+       Keep the default frame if it exists
+    */
     void clear();
+
     int numFrames() const;
     CoordinateFrame* frameAt(int index) const;
     CoordinateFrame* findFrame(const GeneralId& id) const;
-
-    /**
-       This function is similar to findFrame, but returns the identity frame
-       if the target frame is not found.
-    */
-    CoordinateFrame* getFrame(const GeneralId& id) const;
-
     int indexOf(CoordinateFrame* frame) const;
 
     bool insert(int index, CoordinateFrame* frame);
@@ -48,10 +53,7 @@ public:
 
     SignalProxy<void(int index)> sigFrameAdded();
     SignalProxy<void(int index, CoordinateFrame* frame)> sigFrameRemoved();
-    SignalProxy<void(int index)> sigFramePositionChanged();
-    SignalProxy<void(int index)> sigFrameAttributeChanged();
-    void notifyFramePositionChange(int index);
-    void notifyFrameAttributeChange(int index);
+    SignalProxy<void(int index, int flags)> sigFrameUpdated();
 
     /**
        @return true if the id is successfully changed. false if the id is not
@@ -60,10 +62,9 @@ public:
     bool resetId(CoordinateFrame* frame, const GeneralId& newId);
 
     /**
-       Reset the internal id counter so that the createNextId function returns 1
-       if there is no existing frame with id 1.
+       Reset the internal id counter used by the createNextId function.
     */
-    void resetIdCounter();
+    void resetIdCounter(int id = 0);
     GeneralId createNextId(int prevId = -1);
 
     bool read(const Mapping& archive);
@@ -75,9 +76,15 @@ protected:
     virtual Referenced* doClone(CloneMap* cloneMap) const override;
     
 private:
+    // Called from the CoordinateFrame implementation
+    void notifyFrameUpdate(CoordinateFrame* frame, int flags);
+    
     class Impl;
     Impl* impl;
     int frameType_;
+    bool hasFirstElementAsDefaultFrame_;
+
+    friend class CoordinateFrame;
 };
 
 typedef ref_ptr<CoordinateFrameList> CoordinateFrameListPtr;

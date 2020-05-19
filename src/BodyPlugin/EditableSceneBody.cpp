@@ -26,6 +26,7 @@
 #include <cnoid/ExtensionManager>
 #include <cnoid/Archive>
 #include <cnoid/ConnectionSet>
+#include <cnoid/CheckBoxAction>
 #include <fmt/format.h>
 #include "gettext.h"
 
@@ -254,6 +255,7 @@ public:
     void changeCollisionLinkHighlightMode(bool on);
     void onLinkVisibilityCheckToggled();
     void onLinkSelectionChanged(const std::vector<bool>& selection);
+    void onLinkOriginsCheckChanged(bool on);
 
     void showCenterOfMass(bool on);
     void showPpcom(bool on);
@@ -430,8 +432,9 @@ void EditableSceneBody::Impl::onSceneGraphConnection(bool on)
         onKinematicStateChanged();
 
         connections.add(
-            bodyItem->sigLocationEditableChanged().connect(
-                [&](bool on){
+            bodyItem->sigLocationAttributeChanged().connect(
+                [&](){
+                    bool on = bodyItem->isLocationEditable();
                     if(!on){
                         if(outlinedLink){
                             outlinedLink->showOutline(false);
@@ -602,6 +605,14 @@ void EditableSceneBody::Impl::onLinkSelectionChanged(const std::vector<bool>& se
 {
     if(linkVisibilityCheck->isChecked()){
         self->setLinkVisibilities(selection);
+    }
+}
+
+
+void EditableSceneBody::Impl::onLinkOriginsCheckChanged(bool on)
+{
+    for(int i=0; i < self->numSceneLinks(); ++i){
+        self->editableSceneLink(i)->showOrigin(on);
     }
 }
 
@@ -1114,7 +1125,7 @@ bool EditableSceneBody::Impl::onPointerMoveEvent(const SceneWidgetEvent& event)
             const Vector3 p = pointedSceneLink->T().inverse() * event.point();
             event.updateIndicator(
                 fmt::format("{0} / {1} : ({2:.3f}, {3:.3f}, {4:.3f})",
-                            bodyItem->name(), pointedSceneLink->link()->name(),
+                            bodyItem->displayName(), pointedSceneLink->link()->name(),
                             p.x(), p.y(), p.z()));
         }
     } else {
@@ -1249,8 +1260,29 @@ void EditableSceneBody::Impl::onContextMenuRequest(const SceneWidgetEvent& event
     }
 
     mm.setPath(_("Markers"));
+
+    auto linkOriginAction = new CheckBoxAction(_("Link Origins"));
+    int checkState = Qt::Unchecked;
+    int numLinks = self->numSceneLinks();
+    int numOriginShowns = 0;
+    for(int i=0; i < numLinks; ++i){
+        if(self->editableSceneLink(i)->isOriginShown()){
+            ++numOriginShowns;
+        }
+    }
+    auto check = linkOriginAction->checkBox();
+    check->setTristate();
+    if(numOriginShowns == 0){
+        check->setCheckState(Qt::Unchecked);
+    } else if(numOriginShowns == numLinks){
+        check->setCheckState(Qt::Checked);
+    } else {
+        check->setCheckState(Qt::PartiallyChecked);
+    }
+    mm.addAction(linkOriginAction);
+    check->sigToggled().connect([&](bool on){ onLinkOriginsCheckChanged(on); });
         
-    Action* item = mm.addCheckItem(_("Center of Mass"));
+    auto item = mm.addCheckItem(_("Center of Mass"));
     item->setChecked(isCmVisible);
     item->sigToggled().connect([&](bool on){ showCenterOfMass(on); });
             
@@ -1352,9 +1384,9 @@ void EditableSceneBody::Impl::onDraggerDragged()
 {
     activeSimulatorItem = SimulatorItem::findActiveSimulatorItemFor(bodyItem);
     if(activeSimulatorItem){
-        setForcedPosition(positionDragger->draggedPosition());
+        setForcedPosition(positionDragger->globalDraggingPosition());
     } else {
-        Affine3 T = positionDragger->draggedPosition();
+        Affine3 T = positionDragger->globalDraggingPosition();
         T.linear() = targetLink->calcRfromAttitude(T.linear());
         doIK(T);
     }
@@ -1367,7 +1399,7 @@ void EditableSceneBody::Impl::onDraggerDragFinished()
     if(activeSimulatorItem){
         finishForcedPosition();
     } else {
-        Affine3 T = positionDragger->draggedPosition();
+        Affine3 T = positionDragger->globalDraggingPosition();
         T.linear() = targetLink->calcRfromAttitude(T.linear());
         doIK(T);
     }

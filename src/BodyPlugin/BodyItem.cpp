@@ -67,6 +67,7 @@ public:
         bodyItem = parentBodyItem;
         link = parentLink;
     }
+    virtual int getLocationType() const override { return GlobalLocation; }
     virtual std::string getLocationName() const override {
         return link->body()->name() + " - " + link->name();
     }
@@ -74,7 +75,6 @@ public:
         return bodyItem->sigKinematicStateChanged();
     }
     virtual Position getLocation() const override { return link->position(); }
-    virtual void setLocation(const Position& T) override { }
     virtual bool isLocationEditable() const override { return false; }
     virtual LocatableItem* getParentLocatableItem() override { return nullptr; }
     virtual Item* getCorrespondingItem() override { return bodyItem; }
@@ -757,7 +757,6 @@ LinkKinematicsKitManager* BodyItem::Impl::getOrCreateLinkKinematicsKitManager()
 {
     if(!linkKinematicsKitManager){
         linkKinematicsKitManager.reset(new LinkKinematicsKitManager(self));
-        self->sceneBody()->addChild(linkKinematicsKitManager->scene(), true);
     }
     return linkKinematicsKitManager.get();
 }
@@ -1259,16 +1258,19 @@ SignalProxy<void()> BodyItem::sigLocationChanged()
 }
 
 
-Position BodyItem::getLocation() const
+int BodyItem::getLocationType() const
 {
-    return impl->body->rootLink()->position();
+    if(impl->attachmentToParent){
+        return OffsetLocation;
+    } else {
+        return GlobalLocation;
+    }
 }
 
 
-bool BodyItem::prefersLocalLocation() const
+Position BodyItem::getLocation() const
 {
-    // Prefers the local location coordinate if the body is attached to the parent body
-    return impl->attachmentToParent != nullptr;
+    return impl->body->rootLink()->position();
 }
 
 
@@ -1429,7 +1431,7 @@ void BodyItem::Impl::setParentBodyItem(BodyItem* bodyItem)
         if(attachmentToParent){
             auto holderLink = attachmentToParent->holder()->link();
             mvout() << format(_("{0} has been detached from {1} of {2}."),
-                              self->name(), holderLink->name(), holderLink->body()->name()) << endl;
+                              self->displayName(), holderLink->name(), holderLink->body()->name()) << endl;
         }
     }
 
@@ -1470,7 +1472,7 @@ Link* BodyItem::Impl::attachToBodyItem(BodyItem* bodyItem)
                     body->rootLink()->setOffsetPosition(T_offset);
                     self->setLocationEditable(false);
                     mvout() << format(_("{0} has been attached to {1} of {2}."),
-                                      self->name(), linkToAttach->name(), bodyItem->name()) << endl;
+                                      self->displayName(), linkToAttach->name(), bodyItem->displayName()) << endl;
                     goto found;
                 }
             }
@@ -1734,7 +1736,7 @@ bool BodyItem::Impl::restore(const Archive& archive)
             if(qs->size() != nj){
                 if(qs->size() != body->numJoints()){
                     MessageView::instance()->putln(
-                        format(_("Mismatched size of the stored joint positions for {}"), self->name()),
+                        format(_("Mismatched size of the stored joint positions for {}"), self->displayName()),
                         MessageView::WARNING);
                 }
                 nj = std::min(qs->size(), nj);
@@ -1751,7 +1753,7 @@ bool BodyItem::Impl::restore(const Archive& archive)
             if(m != n){
                 if(m != body->numJoints()){
                     MessageView::instance()->putln(
-                        format(_("Mismatched size of the stored initial joint positions for {}"), self->name()),
+                        format(_("Mismatched size of the stored initial joint positions for {}"), self->displayName()),
                         MessageView::WARNING);
                 }
                 m = std::min(m, n);

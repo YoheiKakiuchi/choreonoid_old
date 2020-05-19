@@ -315,7 +315,9 @@ CoordinateFrameList* LinkKinematicsKit::offsetFrames()
 CoordinateFrame* LinkKinematicsKit::baseFrame(const GeneralId& id)
 {
     if(impl->baseFrames){
-        return impl->baseFrames->getFrame(id);
+        if(auto frame = impl->baseFrames->findFrame(id)){
+            return frame;
+        }
     }
     return impl->defaultBaseFrame;
 }
@@ -324,7 +326,9 @@ CoordinateFrame* LinkKinematicsKit::baseFrame(const GeneralId& id)
 CoordinateFrame* LinkKinematicsKit::offsetFrame(const GeneralId& id)
 {
     if(impl->offsetFrames){
-        return impl->offsetFrames->getFrame(id);
+        if(auto frame = impl->offsetFrames->findFrame(id)){
+            return frame;
+        }
     }
     return impl->defaultOffsetFrame;
 
@@ -346,7 +350,9 @@ const GeneralId& LinkKinematicsKit::currentOffsetFrameId() const
 CoordinateFrame* LinkKinematicsKit::currentBaseFrame()
 {
     if(impl->baseFrames){
-        return impl->baseFrames->getFrame(impl->currentBaseFrameId);
+        if(auto frame = impl->baseFrames->findFrame(impl->currentBaseFrameId)){
+            return frame;
+        }
     }
     return impl->defaultBaseFrame;
 }
@@ -355,7 +361,9 @@ CoordinateFrame* LinkKinematicsKit::currentBaseFrame()
 CoordinateFrame* LinkKinematicsKit::currentOffsetFrame()
 {
     if(impl->offsetFrames){
-        return impl->offsetFrames->getFrame(impl->currentOffsetFrameId);
+        if(auto frame = impl->offsetFrames->findFrame(impl->currentOffsetFrameId)){
+            return frame;
+        }
     }
     return impl->defaultOffsetFrame;
 }
@@ -411,14 +419,13 @@ void LinkKinematicsKit::notifyPositionError(const Position& T_frameCoordinate)
 
 bool LinkKinematicsKit::storeState(Mapping& archive) const
 {
-    const auto defaultId = CoordinateFrame::defaultFrameId();
     auto baseId = impl->currentBaseFrameId;
-    if(baseId != defaultId){
+    if(baseId.isValid()){
         archive.write("base_frame", baseId.label(),
                       baseId.isString() ? DOUBLE_QUOTED : PLAIN_STRING);
     }
     auto offsetId = impl->currentOffsetFrameId;
-    if(offsetId != defaultId){
+    if(offsetId.isValid()){
         archive.write("offset_frame", offsetId.label(),
                       offsetId.isString() ? DOUBLE_QUOTED : PLAIN_STRING);
     }

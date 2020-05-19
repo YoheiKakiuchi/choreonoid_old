@@ -4,6 +4,7 @@
 #include "GeneralId.h"
 #include "Referenced.h"
 #include <cnoid/EigenTypes>
+#include <cnoid/Signal>
 #include <string>
 #include "exportdecl.h"
 
@@ -30,10 +31,12 @@ public:
     virtual CoordinateFrame* clone() const;
 
     const GeneralId& id() const { return id_; }
-    static GeneralId defaultFrameId() { return GeneralId(0); }
 
-    void setGloal(bool on) { isGlobal_ = on; }
-    bool isGlobal() const { return isGlobal_; }
+    enum Mode { Local, Global };
+    void setMode(int mode) { mode_ = mode; }
+    int mode() const { return mode_; }
+    bool isLocal() const { return mode_ == Local; }
+    bool isGlobal() const { return mode_ == Global; }
 
     const Position& T() const { return T_; }
     const Position& position() const { return T_; }
@@ -47,12 +50,22 @@ public:
     bool read(const Mapping& archive);
     bool write(Mapping& archive) const;
 
+    enum UpdateFlag {
+        IdUpdate = 1 << 0,
+        ModeUpdate = 1 << 1,
+        NoteUpdate = 1 << 2,
+        PositionUpdate = 1 << 3,
+    };
+    SignalProxy<void(int flags)> sigUpdated() { return sigUpdated_; }
+    void notifyUpdate(int flags);
+        
 private:
     Position T_;
     GeneralId id_;
-    bool isGlobal_;
+    int mode_;
     std::string note_;
     weak_ref_ptr<CoordinateFrameList> ownerFrameList_;
+    Signal<void(int flags)> sigUpdated_;
 
     friend class CoordinateFrameList;
 };

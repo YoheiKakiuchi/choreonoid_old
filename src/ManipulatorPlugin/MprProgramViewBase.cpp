@@ -10,9 +10,6 @@
 #include <cnoid/MessageView>
 #include <cnoid/TimeBar>
 #include <cnoid/BodyItem>
-#include <cnoid/BodySuperimposerItem>
-#include <cnoid/LinkKinematicsKit>
-#include <cnoid/BodyState>
 #include <cnoid/ReferencedObjectSeqItem>
 #include <cnoid/StringListComboBox>
 #include <cnoid/Buttons>
@@ -138,9 +135,7 @@ public:
     Signal<void(MprStatement* statement)> sigCurrentStatementChanged;
     MprStatementPtr prevCurrentStatement;
     vector<MprStatementPtr> statementsToPaste;
-
     BodySyncMode bodySyncMode;
-    BodySuperimposerItemPtr bodySuperimposer;
     
     QLabel programNameLabel;
     QHBoxLayout buttonBox[3];
@@ -156,7 +151,6 @@ public:
     ~Impl();
     void setupWidgets();
     StatementDelegate* findStatementDelegate(MprStatement* statement);
-    void onOptionMenuClicked();
     ScopedCounter scopedCounterOfStatementItemOperationCall();
     bool isDoingStatementItemOperation() const;
     void setProgramItem(MprProgramItemBase* item);
@@ -188,8 +182,6 @@ public:
     void setBaseContextMenu(MenuManager& menuManager);
     void copySelectedStatements(bool doCut);
     void pasteStatements();
-    void initializeBodySuperimposer();
-    void superimposePosition(MprPositionStatement* ps);
 
     QModelIndex indexFromItem(QTreeWidgetItem* item, int column = 0) const {
         return TreeWidget::indexFromItem(item, column);
@@ -694,7 +686,9 @@ void MprProgramViewBase::setBodySyncMode(BodySyncMode mode)
 {
     if(mode != impl->bodySyncMode){
         impl->bodySyncMode = mode;
-        impl->initializeBodySuperimposer();
+        if(!mode && impl->programItem){
+            impl->programItem->clearSuperimposition();
+        }
     }
 }
 
@@ -751,6 +745,10 @@ bool MprProgramViewBase::Impl::isDoingStatementItemOperation() const
 void MprProgramViewBase::Impl::setProgramItem(MprProgramItemBase* item)
 {
     programConnections.disconnect();
+    if(programItem){
+        programItem->clearSuperimposition();
+    }
+    
     programItem = item;
     logTopLevelProgramName.reset();
     currentStatement = nullptr;
@@ -789,13 +787,11 @@ void MprProgramViewBase::Impl::setProgramItem(MprProgramItemBase* item)
         programNameLabel.setStyleSheet("font-weight: bold");
         if(auto bodyItem = programItem->targetBodyItem()){
             programNameLabel.setText(
-                format("{0} - {1}", bodyItem->name(), programItem->name()).c_str());
+                format("{0} - {1}", bodyItem->displayName(), programItem->displayName()).c_str());
         } else {
-            programNameLabel.setText(programItem->name().c_str());
+            programNameLabel.setText(programItem->displayName().c_str());
         }
     }
-
-    initializeBodySuperimposer();
 
     updateStatementTree();
 }
@@ -920,9 +916,9 @@ void MprProgramViewBase::onStatementActivated(MprStatement* statement)
 {
     if(auto ps = dynamic_cast<MprPositionStatement*>(statement)){
         if(impl->bodySyncMode == DirectBodySync){
-            impl->programItem->moveTo(ps, true);
+            impl->programItem->moveTo(ps);
         } else if(impl->bodySyncMode == TwoStageBodySync){
-            impl->superimposePosition(ps);
+            impl->programItem->superimposePosition(ps);
         }
     }
 }
@@ -942,7 +938,7 @@ void MprProgramViewBase::onStatementDoubleClicked(MprStatement* statement)
 {
     if(impl->bodySyncMode == TwoStageBodySync){
         if(auto ps = dynamic_cast<MprPositionStatement*>(statement)){
-            impl->programItem->moveTo(ps, true);
+            impl->programItem->moveTo(ps);
         }
     }
 }
@@ -1443,57 +1439,6 @@ void MprProgramViewBase::Impl::pasteStatements()
     for(auto& statement : statementsToPaste){
         pos = program->insert(pos, statement->clone());
         ++pos;
-    }
-}
-
-
-void MprProgramViewBase::Impl::initializeBodySuperimposer()
-{
-    if(bodySuperimposer){
-        bodySuperimposer->clearSuperimposition();
-        bodySuperimposer.reset();
-    }
-    if(!programItem){
-        return;
-    }
-    if(bodySyncMode == TwoStageBodySync){
-        if(auto bodyItem = programItem->targetBodyItem()){
-            bodySuperimposer =
-                bodyItem->findChildItem<BodySuperimposerItem>("MprPositionSuperimposer");
-            if(!bodySuperimposer){
-                bodySuperimposer = new BodySuperimposerItem;
-                bodySuperimposer->setName("MprPositionSuperimposer");
-                bodySuperimposer->setTemporal();
-                bodyItem->addChildItem(bodySuperimposer);
-            }
-        }
-    }
-}
-
-
-void MprProgramViewBase::Impl::superimposePosition(MprPositionStatement* ps)
-{
-    if(bodySuperimposer){
-        auto orgBody = programItem->targetBodyItem()->body();
-        BodyState orgBodyState(*orgBody);
-
-        if(programItem->moveTo(ps, false)){
-            // Main body
-            auto superBody = bodySuperimposer->superimposedBody(0);
-            BodyState bodyState(*orgBody);
-            bodyState.restorePositions(*superBody);
-            superBody->calcForwardKinematics();
-
-            // Child bodies
-            const int n = bodySuperimposer->numSuperimposedBodies();
-            for(int i=1; i < n; ++i){
-                auto childBody = bodySuperimposer->superimposedBody(i);
-                childBody->syncPositionWithParentBody();
-            }
-            
-            bodySuperimposer->updateSuperimposition();
-            orgBodyState.restorePositions(*orgBody);
-        }
     }
 }
 

@@ -27,12 +27,19 @@ public:
 
     MprProgram* program();
     const MprProgram* program() const;
+    MprPositionList* positionList();
+    const MprPositionList* positionList() const;
 
     bool isStartupProgram() const;
     bool setAsStartupProgram(bool on, bool doNotify = true);
 
-    bool moveTo(MprPositionStatement* statement, bool doUpdateAll = true);
+    bool moveTo(MprPositionStatement* statement);
+    bool moveTo(MprPosition* position);
+    bool superimposePosition(MprPositionStatement* statement);
+    bool superimposePosition(MprPosition* position);
+    void clearSuperimposition();
     bool touchupPosition(MprPositionStatement* statement);
+    bool touchupPosition(MprPosition* position);
 
     virtual void doPutProperties(PutPropertyFunction& putProperty) override;
     virtual bool store(Archive& archive) override;

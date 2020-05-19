@@ -20,9 +20,13 @@ public:
     unordered_map<GeneralId, MprPositionPtr, GeneralId::Hash> idToPositionMap;
     int idCounter;
     bool isStringIdEnabled;
+    Signal<void(int index)> sigPositionAdded;
+    Signal<void(int index, MprPosition* position)> sigPositionRemoved;
+    Signal<void(int index, int flags)> sigPositionUpdated;
 
     Impl(MprPositionList* self);
     Impl(MprPositionList* self, const Impl& org);
+    bool remove(int index, bool doNotify);
 };
 
 }
@@ -38,6 +42,7 @@ MprPositionList::Impl::Impl(MprPositionList* self)
     : self(self)
 {
     isStringIdEnabled = true;
+    idCounter = 0;    
 }
 
 
@@ -61,6 +66,7 @@ MprPositionList::Impl::Impl(MprPositionList* self, const Impl& org)
     : self(self)
 {
     isStringIdEnabled = org.isStringIdEnabled;    
+    idCounter = 0;    
 }
 
 
@@ -92,10 +98,11 @@ bool MprPositionList::isStringIdEnabled() const
 void MprPositionList::clear()
 {
     for(auto& position : impl->positions){
-        position->owner_.reset();
+        position->ownerPositionList_.reset();
     }
     impl->positions.clear();
     impl->idToPositionMap.clear();
+    impl->idCounter = 0;
 }
 
 
@@ -136,13 +143,12 @@ bool MprPositionList::insert(int index, MprPosition* position)
 {
     auto& id = position->id();
     
-    if(position->owner() || !id.isValid()||
-       (!impl->isStringIdEnabled && id.isString()) ||
-       MprPositionList::findPosition(id)){
+    if(position->ownerPositionList() || !id.isValid()||
+       (!impl->isStringIdEnabled && id.isString()) || findPosition(id)){
         return false;
     }
 
-    position->owner_ = this;
+    position->ownerPositionList_ = this;
 
     impl->idToPositionMap[id] = position;
     if(index > numPositions()){
@@ -150,7 +156,28 @@ bool MprPositionList::insert(int index, MprPosition* position)
     }
     impl->positions.insert(impl->positions.begin() + index, position);
 
+    impl->sigPositionAdded(index);
+
     return true;
+}
+
+
+bool MprPositionList::replace(int index, MprPosition* position)
+{
+    auto existing = positionAt(index);
+    if(existing->id() != position->id() && findPosition(position->id())){
+        return false;
+    }
+    bool replaced = false;
+    if(impl->remove(index, false)){
+        if(insert(index, position)){
+            replaced = true;
+            if(!impl->sigPositionUpdated.empty()){
+                impl->sigPositionUpdated(index, MprPosition::ObjectReplaced);
+            }
+        }
+    }
+    return replaced;
 }
 
 
@@ -160,15 +187,51 @@ bool MprPositionList::append(MprPosition* position)
 }
 
 
-void MprPositionList::removeAt(int index)
+void MprPositionList::remove(int index)
 {
-    if(index >= numPositions()){
-        return;
+    impl->remove(index, true);
+}
+
+
+bool MprPositionList::Impl::remove(int index, bool doNotify)
+{
+    if(index >= positions.size()){
+        return false;
     }
-    auto position_ = impl->positions[index];
-    position_->owner_.reset();
-    impl->idToPositionMap.erase(position_->id());
-    impl->positions.erase(impl->positions.begin() + index);
+    auto position = positions[index];
+    position->ownerPositionList_.reset();
+    idToPositionMap.erase(position->id());
+    positions.erase(positions.begin() + index);
+    if(doNotify){
+        sigPositionRemoved(index, position);
+    }
+    return true;
+}
+
+
+SignalProxy<void(int index)> MprPositionList::sigPositionAdded()
+{
+    return impl->sigPositionAdded;
+}
+
+
+SignalProxy<void(int index, MprPosition* position)> MprPositionList::sigPositionRemoved()
+{
+    return impl->sigPositionRemoved;
+}
+
+
+SignalProxy<void(int index, int flags)> MprPositionList::sigPositionUpdated()
+{
+    return impl->sigPositionUpdated;
+}
+
+
+void MprPositionList::notifyPositionUpdate(MprPosition* position, int flags)
+{
+    if(!impl->sigPositionUpdated.empty()){
+        impl->sigPositionUpdated(indexOf(position), flags);
+    }
 }
 
 
@@ -176,7 +239,7 @@ bool MprPositionList::resetId(MprPosition* position, const GeneralId& newId)
 {
     bool changed = false;
 
-    if(position->owner() == this && newId.isValid() &&
+    if(position->ownerPositionList() == this && newId.isValid() &&
        (impl->isStringIdEnabled || newId.isInt())){
 
         auto& positionMap = impl->idToPositionMap;

@@ -1,7 +1,8 @@
 #ifndef CNOID_BASE_COORDINATE_FRAME_ITEM_H
 #define CNOID_BASE_COORDINATE_FRAME_ITEM_H
 
-#include <cnoid/Item>
+#include "Item.h"
+#include "LocatableItem.h"
 #include <cnoid/GeneralId>
 #include "exportdecl.h"
 
@@ -9,12 +10,12 @@ namespace cnoid {
 
 class CoordinateFrame;
 class CoordinateFrameList;
+class CoordinateFrameListItem;
 
 /**
-   \note This item is not independently used, but used as a child item
-   of CoordinateFrameListItem
+   \note This item is always used as a child item of CoordinateFrameListItem
 */
-class CNOID_EXPORT CoordinateFrameItem : public Item
+class CNOID_EXPORT CoordinateFrameItem : public Item, public LocatableItem
 {
 public:
     static void initializeClass(ExtensionManager* ext);
@@ -23,9 +24,31 @@ public:
     CoordinateFrameItem(const CoordinateFrameItem& org);
     virtual ~CoordinateFrameItem();
 
-    void setFrameId(const GeneralId& id);
+    virtual std::string displayName() const;
+
+    bool setFrameId(const GeneralId& id);
     const GeneralId& frameId() const;
+
+    CoordinateFrameListItem* frameListItem();
     CoordinateFrameList* frameList();
+    const CoordinateFrameList* frameList() const;
+    CoordinateFrame* frame();
+    const CoordinateFrame* frame() const;
+    bool isBaseFrame() const;
+    bool isOffsetFrame() const;
+
+    void setVisibilityCheck(bool on);
+
+    void putFrameAttributes(PutPropertyFunction& putProperty);
+
+    // LocatableItem functions
+    virtual int getLocationType() const override;
+    virtual LocatableItem* getParentLocatableItem() override;
+    virtual std::string getLocationName() const override;
+    virtual Position getLocation() const override;
+    virtual bool isLocationEditable() const override;
+    virtual void setLocation(const Position& T) override;
+    virtual SignalProxy<void()> sigLocationChanged() override;
 
     virtual bool store(Archive& archive) override;
     virtual bool restore(const Archive& archive) override;
@@ -33,8 +56,7 @@ public:
 protected:
     virtual Item* doDuplicate() const override;
     virtual void onPositionChanged() override;
-
-    //virtual void doPutProperties(PutPropertyFunction& putProperty) override;
+    virtual void doPutProperties(PutPropertyFunction& putProperty) override;
 
 private:
     class Impl;

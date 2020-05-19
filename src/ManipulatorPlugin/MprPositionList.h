@@ -2,6 +2,7 @@
 #define CNOID_MANIPULATOR_PLUGIN_MPR_POSITION_LIST_H
 
 #include <cnoid/CloneableReferenced>
+#include <cnoid/Signal>
 #include "exportdecl.h"
 
 namespace cnoid {
@@ -35,7 +36,12 @@ public:
     
     bool insert(int index, MprPosition* position);
     bool append(MprPosition* position);
-    void removeAt(int index);
+    bool replace(int index, MprPosition* position);
+    void remove(int index);
+
+    SignalProxy<void(int index)> sigPositionAdded();
+    SignalProxy<void(int index, MprPosition* position)> sigPositionRemoved();
+    SignalProxy<void(int index, int flags)> sigPositionUpdated();
 
     /**
        @return true if the id is successfully changed. false if the id is not
@@ -58,6 +64,9 @@ protected:
     virtual Referenced* doClone(CloneMap* cloneMap) const override;
 
 private:
+    // Called from the CoordinateFrame implementation
+    void notifyPositionUpdate(MprPosition* position, int flags);
+    
     Impl* impl;
 
     friend class MprPosition;

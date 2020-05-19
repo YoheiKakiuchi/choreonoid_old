@@ -39,7 +39,6 @@ set(sources
   DisplayedValueFormatManager.cpp
   PositionWidget.cpp
   LocationView.cpp
-  PositionEditManager.cpp
   MultiSeqItemCreationPanel.cpp
   ToolBar.cpp
   TimeBar.cpp
@@ -53,6 +52,7 @@ set(sources
   MultiSE3SeqGraphView.cpp
   Process.cpp
   Action.cpp
+  CheckBoxAction.cpp
   ActionGroup.cpp
   Widget.cpp
   SpinBox.cpp
@@ -146,6 +146,7 @@ set(headers
   MainWindow.h
   Process.h
   Action.h
+  CheckBoxAction.h
   ActionGroup.h
   Widget.h
   SpinBox.h
@@ -193,7 +194,6 @@ set(headers
   TargetItemPicker.h
   DisplayedValueFormatManager.h
   PositionWidget.h
-  PositionEditManager.h
   PutPropertyFunction.h
   RootItem.h
   FolderItem.h
@@ -283,7 +283,6 @@ set(qtheaders
   InfoBar.h
   StringListComboBox.h
   TextEdit.h
-  CoordinateFrameListView.h
   )
 
 QT5_ADD_RESOURCES(RC_SRCS Base.qrc)

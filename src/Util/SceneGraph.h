@@ -41,7 +41,8 @@ public:
     virtual ~SgUpdate();
     int action() const { return action_; }
     bool isModified() const { return (action_ & MODIFIED); }
-    void setAction(int act) { action_ = act; }
+    void setAction(int act) { action_ |= act; }
+    void resetAction(int act = NONE) { action_ = act; }
     const Path& path() const { return path_; }
     void push(SgObject* node) { path_.push_back(node); }
     void pop() { path_.pop_back(); }
