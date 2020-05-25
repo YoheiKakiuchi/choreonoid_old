@@ -57,27 +57,22 @@ ItemFileIO* meshFileIO;
 
 BodyState kinematicStateCopy;
 
-class ParentLinkLocation : public LocatableItem
+class LinkLocation : public LocatableItem
 {
 public:
-    BodyItem* bodyItem;
-    Link* link;
+    weak_ref_ptr<BodyItem> refBodyItem;
+    weak_ref_ptr<Link> refLink;
 
-    void setTarget(BodyItem* parentBodyItem, Link* parentLink){
-        bodyItem = parentBodyItem;
-        link = parentLink;
-    }
-    virtual int getLocationType() const override { return GlobalLocation; }
-    virtual std::string getLocationName() const override {
-        return link->body()->name() + " - " + link->name();
-    }
-    virtual SignalProxy<void()> sigLocationChanged() override {
-        return bodyItem->sigKinematicStateChanged();
-    }
-    virtual Position getLocation() const override { return link->position(); }
-    virtual bool isLocationEditable() const override { return false; }
-    virtual LocatableItem* getParentLocatableItem() override { return nullptr; }
-    virtual Item* getCorrespondingItem() override { return bodyItem; }
+    LinkLocation();
+    LinkLocation(BodyItem* bodyItem, Link* link);
+    void setTarget(BodyItem* bodyItem, Link* link);
+    virtual int getLocationType() const override;
+    virtual std::string getLocationName() const override;
+    virtual SignalProxy<void()> sigLocationChanged() override;
+    virtual Position getLocation() const override;
+    virtual bool isLocationEditable() const override;
+    virtual LocatableItem* getParentLocatableItem() override;
+    virtual Item* getCorrespondingItem() override;
 };
 
 class MyCompositeBodyIK : public CompositeBodyIK
@@ -103,7 +98,7 @@ public:
     BodyPtr body;
 
     BodyItem* parentBodyItem;
-    unique_ptr<ParentLinkLocation> parentLinkLocation;
+    unique_ptr<LinkLocation> parentLinkLocation;
     AttachmentDevicePtr attachmentToParent;
     ScopedConnection parentBodyItemConnection;
     bool isKinematicStateChangeNotifiedByParentBodyItem;
@@ -171,6 +166,7 @@ public:
     bool enableSelfCollisionDetection(bool on);
     void updateCollisionDetectorLater();
     void doAssign(Item* srcItem);
+    void setLocationEditable(bool on, bool updateInitialPositionWhenLocked);
     void createSceneBody();
     void setTransparency(float t);
     void updateAttachment(bool on, bool forceUpdate);
@@ -430,7 +426,7 @@ void BodyItem::Impl::setBody(Body* body_)
 }
 
 
-void BodyItem::setName(const std::string& name)
+bool BodyItem::setName(const std::string& name)
 {
     auto body = impl->body;
     if(body){
@@ -439,7 +435,7 @@ void BodyItem::setName(const std::string& name)
             body->setModelName(name);
         }
     }
-    Item::setName(name);
+    return Item::setName(name);
 }
 
 
@@ -1270,16 +1266,34 @@ int BodyItem::getLocationType() const
 
 Position BodyItem::getLocation() const
 {
-    return impl->body->rootLink()->position();
+    auto rootLink = impl->body->rootLink();
+    if(impl->attachmentToParent){
+        // relative position from the parent link
+        return rootLink->offsetPosition();
+    } else {
+        // global position
+        return rootLink->Ta();
+    }
 }
 
 
 void BodyItem::setLocationEditable(bool on)
 {
-    if(on != isLocationEditable()){
-        LocatableItem::setLocationEditable(on);
-        if(impl->sceneBody){
-            impl->sceneBody->notifyUpdate();
+    impl->setLocationEditable(on, true);
+}
+
+
+void BodyItem::Impl::setLocationEditable(bool on, bool updateInitialPositionWhenLocked)
+{
+    if(on != self->isLocationEditable()){
+        self->LocatableItem::setLocationEditable(on);
+        if(!on && updateInitialPositionWhenLocked){
+            if(!self->isAttachedToParentBody()){
+                initialState.setRootLinkPosition(body->rootLink()->T());
+            }
+        }
+        if(sceneBody){
+            sceneBody->notifyUpdate();
         }
     }
 }
@@ -1287,8 +1301,14 @@ void BodyItem::setLocationEditable(bool on)
 
 void BodyItem::setLocation(const Position& T)
 {
-    impl->body->rootLink()->setPosition(T);
-    notifyKinematicStateChange(true);
+    auto rootLink = impl->body->rootLink();
+    if(impl->attachmentToParent){
+        rootLink->setOffsetPosition(T);
+        impl->parentBodyItem->notifyKinematicStateChange(true);
+    } else {
+        rootLink->setPosition(T);
+        notifyKinematicStateChange(true);
+    }
 }
 
 
@@ -1297,7 +1317,7 @@ LocatableItem* BodyItem::getParentLocatableItem()
     if(impl->parentBodyItem){
         if(impl->attachmentToParent){
             if(!impl->parentLinkLocation){
-                impl->parentLinkLocation.reset(new ParentLinkLocation);
+                impl->parentLinkLocation.reset(new LinkLocation);
             }
             auto parentLink = impl->body->parentBodyLink();
             impl->parentLinkLocation->setTarget(impl->parentBodyItem, parentLink);
@@ -1307,6 +1327,86 @@ LocatableItem* BodyItem::getParentLocatableItem()
         }
     }
     return nullptr;
+}
+
+
+LocatableItem* BodyItem::createLinkLocationProxy(Link* link)
+{
+    return new LinkLocation(this, link);
+}
+
+
+LinkLocation::LinkLocation()
+{
+
+}
+
+
+LinkLocation::LinkLocation(BodyItem* bodyItem, Link* link)
+    : refBodyItem(bodyItem),
+      refLink(link)
+{
+
+}
+
+
+void LinkLocation::setTarget(BodyItem* bodyItem, Link* link)
+{
+    refBodyItem = bodyItem;
+    refLink = link;
+}
+
+
+int LinkLocation::getLocationType() const
+{
+    return GlobalLocation;
+}
+
+
+std::string LinkLocation::getLocationName() const
+{
+    if(auto link = refLink.lock()){
+        return link->body()->name() + " - " + link->name();
+    }
+    return string();
+}
+
+
+SignalProxy<void()> LinkLocation::sigLocationChanged()
+{
+    if(auto bodyItem = refBodyItem.lock()){
+        return bodyItem->sigKinematicStateChanged();
+    } else {
+        static Signal<void()> dummySignal;
+        return dummySignal;
+    }
+}
+
+
+Position LinkLocation::getLocation() const
+{
+    if(auto link = refLink.lock()){
+        return link->Ta();
+    }
+    return Position::Identity();
+}
+
+
+bool LinkLocation::isLocationEditable() const
+{
+    return false;
+}
+
+
+LocatableItem* LinkLocation::getParentLocatableItem()
+{
+    return nullptr;
+}
+
+
+Item* LinkLocation::getCorrespondingItem()
+{
+    return refBodyItem.lock();
 }
 
 
@@ -1468,9 +1568,9 @@ Link* BodyItem::Impl::attachToBodyItem(BodyItem* bodyItem)
                     holder->addAttachment(attachment);
                     attachmentToParent = attachment;
                     linkToAttach = holder->link();
-                    Position T_offset = holder->T_local() * attachment->T_local().inverse(Eigen::Isometry);
+                    Position T_offset = holder->T_local_org() * attachment->T_local_org().inverse(Eigen::Isometry);
                     body->rootLink()->setOffsetPosition(T_offset);
-                    self->setLocationEditable(false);
+                    setLocationEditable(false, false);
                     mvout() << format(_("{0} has been attached to {1} of {2}."),
                                       self->displayName(), linkToAttach->name(), bodyItem->displayName()) << endl;
                     goto found;
@@ -1500,7 +1600,7 @@ void BodyItem::Impl::onParentBodyKinematicStateChanged()
         parentLink = parentBodyItem->body()->rootLink();
     }
     auto rootLink = body->rootLink();
-    rootLink->setPosition(parentLink->T() * rootLink->Tb());
+    rootLink->setPosition(parentLink->Ta() * rootLink->Tb());
 
     isKinematicStateChangeNotifiedByParentBodyItem = true;
     isProcessingInverseKinematicsIncludingParentBody = false;
@@ -1562,7 +1662,7 @@ void BodyItem::Impl::doPutProperties(PutPropertyFunction& putProperty)
     putProperty(_("Self-collision detection"), isSelfCollisionDetectionEnabled,
                 [&](bool on){ return enableSelfCollisionDetection(on); });
     putProperty(_("Location editable"), self->isLocationEditable(),
-                [&](bool on){ self->setLocationEditable(on); return true; });
+                [&](bool on){ setLocationEditable(on, true); return true; });
     putProperty(_("Scene sensitive"), self->isSceneSensitive(),
                 [&](bool on){ self->setSceneSensitive(on); return true; });
     putProperty.min(0.0).max(0.9).decimals(1);
@@ -1793,7 +1893,7 @@ bool BodyItem::Impl::restore(const Archive& archive)
     if(archive.read("location_editable", on) ||
        archive.read("isEditable", on) ||
        archive.read("isSceneBodyDraggable", on)){
-        self->setLocationEditable(on);
+        setLocationEditable(on, false);
     }
     if(archive.read("scene_sensitive", on)){
         self->setSceneSensitive(on);

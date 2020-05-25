@@ -185,7 +185,12 @@ Item::~Item()
 
 Item::Impl::~Impl()
 {
-    
+    auto p = addonMap.begin();
+    while(p != addonMap.end()){
+        auto& addon = p->second;
+        addon->setOwnerItem(nullptr);
+        p = addonMap.erase(p);
+    }
 }
 
 
@@ -261,13 +266,15 @@ Item* Item::Impl::duplicateSubTreeIter(Item* duplicated) const
 }
 
 
-void Item::setName(const std::string& name)
+bool Item::setName(const std::string& name)
 {
     if(name != name_){
         string oldName(name_);
         name_ = name;
         impl->sigNameChanged(oldName);
+        return true;
     }
+    return false;
 }
 
 
@@ -621,6 +628,8 @@ bool Item::Impl::doInsertChildItem(ItemPtr item, Item* newNextItem, bool isManua
 
     ++self->numChildren_;
 
+    item->onAttachedToParent();
+
     if(rootItem){
         /**
            The order to process the following notifications was modified on February 4, 2020.
@@ -665,6 +674,12 @@ bool Item::Impl::doInsertChildItem(ItemPtr item, Item* newNextItem, bool isManua
 bool Item::onChildItemAboutToBeAdded(Item* childItem, bool isManualOperation)
 {
     return true;
+}
+
+
+void Item::onAttachedToParent()
+{
+
 }
 
 
@@ -734,6 +749,8 @@ void Item::Impl::doDetachFromParentItem(bool isMoving, bool isParentBeingDeleted
 
     attributes.reset(SubItem);
 
+    self->onDetachedFromParent();
+
     if(rootItem){
         rootItem->notifyEventOnSubTreeRemoved(self, isMoving);
         if(!isMoving){
@@ -753,6 +770,12 @@ void Item::Impl::doDetachFromParentItem(bool isMoving, bool isParentBeingDeleted
         }
         isAnyItemInSubTreesBeingAddedOrRemovedSelected = false;
     }
+}
+
+
+void Item::onDetachedFromParent()
+{
+
 }
 
 
@@ -1113,7 +1136,7 @@ SignalProxy<void()> Item::sigUpdated()
 }
 
 
-bool Item::addAddon(ItemAddon* addon)
+bool Item::setAddon(ItemAddon* addon)
 {
     bool accepted = false;
     if(auto owner = addon->ownerItem()){
@@ -1159,7 +1182,7 @@ ItemAddon* Item::getAddon_(const std::type_info& type)
     if(!addon){
         addon = ItemManager::createAddon(type);
         if(addon){
-            if(!addAddon(addon)){
+            if(!setAddon(addon)){
                 addon.reset();
             }
         }

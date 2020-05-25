@@ -37,7 +37,7 @@ public:
 
     Body* body() const;
     void setBody(Body* body);
-    virtual void setName(const std::string& name) override;
+    virtual bool setName(const std::string& name) override;
 
     bool makeBodyStatic();
     bool makeBodyDynamic();
@@ -154,6 +154,8 @@ public:
     virtual void setLocationEditable(bool on) override;
     virtual void setLocation(const Position& T) override;
     virtual LocatableItem* getParentLocatableItem() override;
+
+    LocatableItem* createLinkLocationProxy(Link* link);
 
     // RenderableItem function
     virtual SgNode* getScene() override;

@@ -39,9 +39,14 @@ CoordinateFrame::CoordinateFrame(const GeneralId& id, CoordinateFrameList* owner
 }
 
 
-CoordinateFrame* CoordinateFrame::clone() const
+bool CoordinateFrame::resetId(const GeneralId& id)
 {
-    return new CoordinateFrame(*this);
+    if(!ownerFrameList_ || !ownerFrameList_.lock()){
+        id_ = id;
+        return true;
+    }
+    auto list = ownerFrameList_.lock();
+    return list->resetId(this, id);
 }
 
 

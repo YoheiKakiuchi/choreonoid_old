@@ -57,6 +57,8 @@ public:
     virtual bool setData(const QModelIndex& index, const QVariant& value, int role) override;
     void addFrame(int row, CoordinateFrame* frame, bool doInsert);
     void removeFrames(QModelIndexList selected);
+    void onFrameAdded(int frameIndex);
+    void onFrameRemoved(int frameIndex);
     void onFrameUpdated(int frameIndex, int flags);
     void onFrameMarkerViisibilityChanged(int frameIndex);
 };
@@ -87,6 +89,7 @@ public:
     CoordinateFrameListView* self;
     TargetItemPicker<CoordinateFrameListItem> targetItemPicker;
     CoordinateFrameListItemPtr targetItem;
+    bool isIndependentItemizationListSupported;
     CoordinateFrameListPtr frameList;
     weak_ref_ptr<CoordinateFrameItem> weakFrameItem;
     FrameListModel* frameListModel;
@@ -135,6 +138,12 @@ void FrameListModel::setFrameListItem(CoordinateFrameListItem* frameListItem)
 
     frameListConnections.disconnect();
     if(frameList){
+        frameListConnections.add(
+            frameList->sigFrameAdded().connect(
+                [&](int index){ onFrameAdded(index); }));
+        frameListConnections.add(
+            frameList->sigFrameRemoved().connect(
+                [&](int index, CoordinateFrame*){ onFrameRemoved(index); }));
         frameListConnections.add(
             frameList->sigFrameUpdated().connect(
                 [&](int index, int flags){ onFrameUpdated(index, flags); }));
@@ -363,15 +372,7 @@ void FrameListModel::addFrame(int row, CoordinateFrame* frame, bool doInsert)
 {
     if(frameList){
         int newFrameIndex = doInsert ? row : row + 1;
-        if(frameList->insert(newFrameIndex, frame)){
-            if(numFrames() == 0){
-                // Remove the empty row first
-                beginRemoveRows(QModelIndex(), 0, 0);
-                endRemoveRows();
-            }
-            beginInsertRows(QModelIndex(), newFrameIndex, newFrameIndex);
-            endInsertRows();
-        }
+        frameList->insert(newFrameIndex, frame);
     }
 }
 
@@ -382,19 +383,36 @@ void FrameListModel::removeFrames(QModelIndexList selected)
         std::sort(selected.begin(), selected.end());
         int numRemoved = 0;
         for(auto& index : selected){
-            int row = index.row() - numRemoved;
-            if(row > 0 || !frameList->hasFirstElementAsDefaultFrame()){
-                beginRemoveRows(QModelIndex(), row, row);
-                frameList->removeAt(row);
-                ++numRemoved;
-                endRemoveRows();
+            int frameIndex = index.row() - numRemoved;
+            if(frameIndex > 0 || !frameList->hasFirstElementAsDefaultFrame()){
+                frameList->removeAt(frameIndex);
             }
+            ++numRemoved;
         }
-        if(frameList->numFrames() == 0){
-            // This is necessary to show the empty row
-            beginResetModel();
-            endResetModel();
-        }
+    }
+}
+
+
+void FrameListModel::onFrameAdded(int frameIndex)
+{
+    if(numFrames() == 0){
+        // Remove the empty row first
+        beginRemoveRows(QModelIndex(), 0, 0);
+        endRemoveRows();
+    }
+    beginInsertRows(QModelIndex(), frameIndex, frameIndex);
+    endInsertRows();
+}
+
+
+void FrameListModel::onFrameRemoved(int frameIndex)
+{
+    beginRemoveRows(QModelIndex(), frameIndex, frameIndex);
+    endRemoveRows();
+    if(numFrames() == 0){
+        // This is necessary to show the empty row
+        beginResetModel();
+        endResetModel();
     }
 }
 
@@ -576,9 +594,13 @@ CoordinateFrameListView::Impl::Impl(CoordinateFrameListView* self)
     vbox->addWidget(this);
     self->setLayout(vbox);
 
+    isIndependentItemizationListSupported = false;
     targetItemPicker.setTargetPredicate(
-        [](CoordinateFrameListItem* item){
-            return item->itemizationMode() != CoordinateFrameListItem::IndependentItemization;
+        [&](CoordinateFrameListItem* item){
+            if(!isIndependentItemizationListSupported){
+                return item->itemizationMode() != CoordinateFrameListItem::IndependentItemization;
+            }
+            return true;
         });
     
     targetItemPicker.sigTargetItemChanged().connect(
@@ -603,6 +625,18 @@ void CoordinateFrameListView::onActivated()
 void CoordinateFrameListView::onDeactivated()
 {
     impl->stopLocationEditing();
+}
+
+
+void CoordinateFrameListView::onAttachedMenuRequest(MenuManager& menuManager)
+{
+    auto supportCheck = menuManager.addCheckItem(_("Support offset frames"));
+    supportCheck->setChecked(impl->isIndependentItemizationListSupported);
+    supportCheck->sigToggled().connect(
+        [&](bool on){
+            impl->isIndependentItemizationListSupported = on;
+            impl->targetItemPicker.refresh();
+        });
 }
 
 

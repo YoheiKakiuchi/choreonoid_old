@@ -29,12 +29,14 @@ public:
 
     enum ItemizationMode { NoItemization, SubItemization, IndependentItemization };
     int itemizationMode() const;
+    bool isNoItemizationMode() const;
     void setItemizationMode(int mode);
-    void customizeFrameItemDisplayName(std::function<std::string(CoordinateFrame* frame)> func);
+    void customizeFrameItemDisplayName(std::function<std::string(const CoordinateFrameItem* item)> func);
     std::string getFrameItemDisplayName(const CoordinateFrameItem* item) const;
     void updateFrameItems();
     CoordinateFrameItem* findFrameItemAt(int index);
-    
+    CoordinateFrameItem* findFrameItem(const GeneralId& id);
+
     CoordinateFrameList* frameList();
     const CoordinateFrameList* frameList() const;
 
@@ -67,6 +69,12 @@ protected:
     virtual bool onChildItemAboutToBeAdded(Item* childItem, bool isManualOperation) override;
     virtual void doPutProperties(PutPropertyFunction& putProperty) override;
 
+private:
+    friend class CoordinateFrameItem;
+    // Called from CoordinateFrameItem::onPositionChanged
+    bool onFrameItemAdded(CoordinateFrameItem* frameItem);
+    void onFrameItemRemoved(CoordinateFrameItem* frameItem);
+    
 private:
     Impl* impl;
 };
