@@ -105,11 +105,19 @@ public:
     void updateTreeWidgetItems();
     void setExpanded(Item* item, bool on = true);
 
-    ItemList<> selectedItems() const;
-    template <class ItemType> ItemList<ItemType> selectedItems() {
-        return selectedItems();
+    ItemList<> getItems() const;
+    template <class ItemType> ItemList<ItemType> getItems() {
+        return getItems();
+    }
+
+    SignalProxy<void(const ItemList<>&)> sigSelectionChanged();
+
+    ItemList<> getSelectedItems() const;
+    template <class ItemType> ItemList<ItemType> getSelectedItems() {
+        return getSelectedItems();
     }
     void selectAllItems();
+    bool selectOnly(Item* item);
     void clearSelection();
     void setSelectedItemsChecked(bool on);
     void toggleSelectedItemChecks();

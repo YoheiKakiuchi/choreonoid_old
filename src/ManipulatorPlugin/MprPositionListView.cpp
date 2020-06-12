@@ -398,7 +398,7 @@ void PositionListModel::removePositions(QModelIndexList selected)
         int numRemoved = 0;
         for(auto& index : selected){
             int positionIndex = index.row() - numRemoved;
-            positionList->remove(positionIndex);
+            positionList->removeAt(positionIndex);
             ++numRemoved;
         }
     }
@@ -528,7 +528,7 @@ MprPositionListView::Impl::Impl(MprPositionListView* self)
       targetItemPicker(self)
 {
     self->setDefaultLayoutArea(View::RIGHT);
-
+    self->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     auto sty = self->style();
     int hs = sty->pixelMetric(QStyle::PM_LayoutHorizontalSpacing);
 

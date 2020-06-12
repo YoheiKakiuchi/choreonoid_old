@@ -78,6 +78,12 @@ ItemTreeWidget* ItemTreeView::itemTreeWidget()
 }
 
 
+void ItemTreeView::setExpanded(Item* item, bool on)
+{
+    impl->itemTreeWidget->setExpanded(item, on);
+}
+
+
 void ItemTreeView::Impl::onContextMenuRequested(Item* item, MenuManager& menuManager)
 {
     menuManager.addItem(_("Cut"))->sigTriggered().connect(
@@ -106,7 +112,7 @@ void ItemTreeView::Impl::onContextMenuRequested(Item* item, MenuManager& menuMan
     menuManager.addSeparator();
     
     menuManager.addItem(_("Reload"))->sigTriggered().connect(
-        [&](){ ItemManager::reloadItems(itemTreeWidget->selectedItems()); });
+        [&](){ ItemManager::reloadItems(itemTreeWidget->getSelectedItems()); });
 
     menuManager.addSeparator();
     

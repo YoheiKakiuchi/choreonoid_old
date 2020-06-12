@@ -15,7 +15,10 @@ registerHolderDevice(
     "Holder",
     [](YAMLBodyLoader& loader, Mapping& node){
         HolderDevicePtr holder = new HolderDevice;
-        return holder->readDescription(loader, node);
+        if(holder->readDescription(&node)){
+            return loader.readDevice(holder, node);
+        }
+        return false;
     });
 
 }
@@ -26,8 +29,11 @@ class HolderDevice::NonState
 {
 public:
     std::string category;
+    int holdCondition;
+    double maxHoldDistance;
+    std::string holdTargetName;
     vector<AttachmentDevicePtr> attachments;
-    NonState(){ }
+    NonState();
     NonState(const NonState& org, CloneMap* cloneMap);
 };
 
@@ -38,6 +44,13 @@ HolderDevice::HolderDevice()
 {
     on_ = false;
     ns = new NonState;
+}
+
+
+HolderDevice::NonState::NonState()
+{
+    holdCondition = Distance;
+    maxHoldDistance = 0.1;
 }
 
 
@@ -55,8 +68,12 @@ HolderDevice::HolderDevice(const HolderDevice& org, bool copyStateOnly, CloneMap
 
 
 HolderDevice::NonState::NonState(const NonState& org, CloneMap* cloneMap)
-    : category(org.category)
+    : category(org.category),
+      holdTargetName(org.holdTargetName)
 {
+    holdCondition = org.holdCondition;
+    maxHoldDistance = org.maxHoldDistance;
+    
     if(cloneMap && !org.attachments.empty()){
         for(size_t i=0; i < org.attachments.size(); ++i){
             attachments.push_back(
@@ -147,6 +164,42 @@ void HolderDevice::setCategory(const std::string& category)
 }
 
 
+int HolderDevice::holdCondition() const
+{
+    return ns->holdCondition;
+}
+
+
+void HolderDevice::setHoldCondition(int condition)
+{
+    ns->holdCondition = condition;
+}
+
+
+double HolderDevice::maxHoldDistance() const
+{
+    return ns->maxHoldDistance;
+}
+
+
+void HolderDevice::setMaxHoldDistance(double distance)
+{
+    ns->maxHoldDistance = distance;
+}
+
+
+const std::string& HolderDevice::holdTargetName() const
+{
+    return ns->holdTargetName;
+}
+
+
+void HolderDevice::setHoldTargetName(const std::string& name)
+{
+    ns->holdTargetName = name;
+}
+
+
 int HolderDevice::numAttachments() const
 {
     if(ns){
@@ -164,7 +217,7 @@ AttachmentDevice* HolderDevice::attachment(int index)
     return nullptr;
 }
 
-    
+
 bool HolderDevice::addAttachment(AttachmentDevice* attachment)
 {
     if(ns){
@@ -172,36 +225,50 @@ bool HolderDevice::addAttachment(AttachmentDevice* attachment)
         if(std::find(a.begin(), a.end(), attachment) == a.end()){
             a.push_back(attachment);
             attachment->setHolder(this);
-            attachment->on(true);
-            on_ = true;
             return true;
         }
     }
     return false;
 }
-    
+
+
+void HolderDevice::removeAttachment(int index)
+{
+    if(ns){
+        auto& attachments = ns->attachments;
+        auto& attachment = attachments[index];
+        attachment->setHolder(nullptr);
+        attachments.erase(attachments.begin() + index);
+    }
+}
+
 
 bool HolderDevice::removeAttachment(AttachmentDevice* attachment)
 {
     if(ns){
-        auto& a = ns->attachments;
-        auto iter = a.begin();
-        while(iter != a.end()){
-            if(*iter == attachment){
-                attachment->setHolder(nullptr);
-                attachment->on(false);
-                a.erase(iter);
-                if(a.empty()){
-                    on_ = false;
-                }
+        auto& attachments = ns->attachments;
+        const int n = attachments.size();
+        for(int i=0; i < n; ++i){
+            if(attachments[i] == attachment){
+                removeAttachment(i);
                 return true;
             }
-            ++iter;
         }
     }
     return false;
 }
 
+
+void HolderDevice::clearAttachments()
+{
+    if(ns){
+        for(auto& attachment : ns->attachments){
+            attachment->setHolder(nullptr);
+        }
+        ns->attachments.clear();
+    }
+}
+    
 
 int HolderDevice::stateSize() const
 {
@@ -225,12 +292,41 @@ double* HolderDevice::writeState(double* out_buf) const
 }
 
 
-bool HolderDevice::readDescription(YAMLBodyLoader& loader, Mapping& node)
+bool HolderDevice::readDescription(const Mapping* info)
 {
-    if(ns){
-        if(!node.read("category", ns->category)){
-            ns->category.clear();
+    if(!info->read("category", ns->category)){
+        ns->category.clear();
+    }
+    string condition;
+    if(info->read("hold_condition", condition)){
+        if(condition == "distance"){
+            ns->holdCondition = Distance;
+        } else if(condition == "collision"){
+            ns->holdCondition = Collision;
+        } else if(condition == "name"){
+            ns->holdCondition = Name;
         }
     }
-    return loader.readDevice(this, node);
+    info->read("max_hold_distance", ns->maxHoldDistance);
+    info->read("hold_target_name", ns->holdTargetName);
+    return true;
+}
+
+
+bool HolderDevice::writeDescription(Mapping* info)
+{
+    if(!ns->category.empty()){
+        info->write("category", ns->category);
+    }
+    string condition;
+    switch(ns->holdCondition){
+    case HolderDevice::Collision: condition = "collision"; break;
+    case HolderDevice::Name: condition = "name"; break;
+    default: /* HolderDevice::Distance */ condition = "distance"; break;
+    }
+    info->write("hold_condition", condition);
+
+    info->write("max_hold_distance", ns->maxHoldDistance);
+    info->write("hold_target_name", ns->holdTargetName);
+    return true;
 }

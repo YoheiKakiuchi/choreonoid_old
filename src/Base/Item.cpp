@@ -60,7 +60,6 @@ class Item::Impl
 {
 public:
     Item* self;
-    Item* lastChild;
     bitset<NumAttributes> attributes;
     vector<bool> checkStates;
     std::function<std::string(const Item* item)> displayNameModifier;
@@ -92,24 +91,32 @@ public:
     void setSelected(bool on, bool forceToNotify, bool doEmitSigSelectedItemsChangedLater);
     bool setSubTreeItemsSelectedIter(Item* item, bool on);
     int countDescendantItems(const Item* item) const;
-    Item* findItem(const std::function<bool(Item* item)>& pred, bool isFromDirectChild, bool isSubItem) const;
+    Item* findItem(const std::function<bool(Item* item)>& pred, bool isRecursive) const;
     Item* findItem(
         ItemPath::iterator iter, ItemPath::iterator end,  const std::function<bool(Item* item)>& pred,
-        bool isFromDirectChild, bool isSubItem) const;
-    void getDescendantItemsIter(const Item* parentItem, ItemList<>& io_items) const;
-    void getSelectedDescendantItemsIter(const Item* parentItem, ItemList<>& io_items) const;
+        bool isRecursive) const;
+    void getDescendantItemsIter(
+        const Item* parentItem, ItemList<>& io_items, const std::function<bool(Item* item)>& pred,
+        bool isRecursive) const;
+    void getSelectedDescendantItemsIter(
+        const Item* parentItem, ItemList<>& io_items, std::function<bool(Item* item)> pred) const;
     Item* duplicateSubTreeIter(Item* duplicated) const;
     bool doInsertChildItem(ItemPtr item, Item* newNextItem, bool isManualOperation);
-    void doDetachFromParentItem(bool isMoving, bool isParentBeingDeleted);
+    void justInsertChildItem(Item* newNextItem, Item* item);
+    bool checkNewPositionAcceptance(Item* newParentItem, Item* newNextItem, bool isManualOperation);
+    bool checkNewPositionAcceptanceIter(bool isManualOperation);
+    bool onCheckNewPositionAcceptance(bool isManualOperation);
+    void callFuncOnConnectedToRoot();
+    void justRemoveSelfFromParent(bool doClearSelf);
+    void doRemoveFromParentItem(bool isMoving, bool isParentBeingDeleted);
     void callSlotsOnPositionChanged(Item* prevParentItem, Item* prevNextSibling);
     void callSlotsOnPositionChangedIter(Item* topItem, Item* prevTopParentItem);
-    void callFuncOnConnectedToRoot();
     void addToItemsToEmitSigSubTreeChanged();
     static void emitSigSubTreeChanged();
     void emitSigDisconnectedFromRootForSubTree();
     void requestRootItemToEmitSigSelectionChangedForNewlyAddedSelectedItems(Item* item, RootItem* root);
     void requestRootItemToEmitSigCheckToggledForNewlyAddedCheckedItems(Item* item, RootItem* root);
-    bool traverse(Item* item, const std::function<bool(Item*)>& function);
+    bool traverse(Item* item, const std::function<bool(Item*)>& pred);
 };
 
 }
@@ -153,8 +160,8 @@ void Item::Impl::initialize()
     self->classId_ = -1;
     
     self->parent_ = nullptr;
-    lastChild = nullptr;
     self->prevItem_ = nullptr;
+    self->lastChild_ = nullptr;
     self->numChildren_ = 0;
     self->isSelected_ = false;
 
@@ -171,12 +178,12 @@ Item::~Item()
     if(TRACE_FUNCTIONS){
         cout << "Item::~Item() of " << name_ << endl;
     }
-    
-    ItemPtr child = childItem();
+
+    ItemPtr child = lastChild_;
     while(child){
-        Item* next = child->nextItem();
-        child->impl->doDetachFromParentItem(false, true);
-        child = next;
+        Item* prev = child->prevItem_;
+        child->impl->doRemoveFromParentItem(false, true);
+        child = prev;
     }
 
     delete impl;
@@ -584,12 +591,19 @@ bool Item::Impl::doInsertChildItem(ItemPtr item, Item* newNextItem, bool isManua
         if(prevParentItem == self && prevNextSibling == newNextItem){
             return false; // try to insert the same position
         }
+    }
+
+    if(!item->impl->checkNewPositionAcceptance(self, newNextItem, isManualOperation)){
+        return false;
+    }
+
+    if(prevParentItem){
         if(auto srcRootItem = prevParentItem->findRootItem()){
             if(srcRootItem == rootItem){
                 isMoving = true;
             }
         }
-        item->impl->doDetachFromParentItem(isMoving, false);
+        item->impl->doRemoveFromParentItem(isMoving, false);
     }
 
     ++recursiveTreeChangeCounter;
@@ -602,33 +616,9 @@ bool Item::Impl::doInsertChildItem(ItemPtr item, Item* newNextItem, bool isManua
         attributes.reset(Temporal);
     }
 
-    item->parent_ = self;
+    justInsertChildItem(newNextItem, item);
 
-    if(newNextItem && (newNextItem->parent_ == self)){
-        item->nextItem_ = newNextItem;
-        Item* prevItem = newNextItem->prevItem_;
-        if(prevItem){
-            prevItem->nextItem_ = item;
-            item->prevItem_ = prevItem;
-        } else {
-            self->firstChild_ = item;
-            item->prevItem_ = nullptr;
-        }
-        newNextItem->prevItem_ = item;
-
-    } else if(lastChild){
-        lastChild->nextItem_ = item;
-        item->prevItem_ = lastChild;
-        item->nextItem_ = nullptr;
-        lastChild = item;
-    } else {
-        self->firstChild_ = item;
-        lastChild = item;
-    }
-
-    ++self->numChildren_;
-
-    item->onAttachedToParent();
+    item->onAddedToParent();
 
     if(rootItem){
         /**
@@ -671,15 +661,87 @@ bool Item::Impl::doInsertChildItem(ItemPtr item, Item* newNextItem, bool isManua
 }
 
 
-bool Item::onChildItemAboutToBeAdded(Item* childItem, bool isManualOperation)
+void Item::Impl::justInsertChildItem(Item* newNextItem, Item* item)
+{
+    item->parent_ = self;
+
+    if(newNextItem && (newNextItem->parent_ == self)){
+        item->nextItem_ = newNextItem;
+        Item* prevItem = newNextItem->prevItem_;
+        if(prevItem){
+            prevItem->nextItem_ = item;
+            item->prevItem_ = prevItem;
+        } else {
+            self->firstChild_ = item;
+            item->prevItem_ = nullptr;
+        }
+        newNextItem->prevItem_ = item;
+
+    } else if(self->lastChild_){
+        self->lastChild_->nextItem_ = item;
+        item->prevItem_ = self->lastChild_;
+        item->nextItem_ = nullptr;
+        self->lastChild_ = item;
+    } else {
+        self->firstChild_ = item;
+        self->lastChild_ = item;
+    }
+
+    ++self->numChildren_;
+    
+}    
+
+
+bool Item::Impl::checkNewPositionAcceptance(Item* newParentItem, Item* newNextItem, bool isManualOperation)
+{
+    auto currentParentItem = self->parent_;
+    auto currentNextItem = self->nextItem_;
+
+    if(currentParentItem){
+        justRemoveSelfFromParent(false);
+    }
+    newParentItem->impl->justInsertChildItem(newNextItem, self);
+
+    bool accepted = checkNewPositionAcceptanceIter(isManualOperation);
+
+    justRemoveSelfFromParent(false);
+    if(currentParentItem){
+        currentParentItem->impl->justInsertChildItem(currentNextItem, self);
+    }
+
+    return accepted;
+}
+
+
+bool Item::Impl::checkNewPositionAcceptanceIter(bool isManualOperation)
+{
+    if(!self->onCheckNewPosition(isManualOperation)){
+        return false;
+    }
+    for(auto child = self->childItem(); child; child = child->nextItem()){
+        if(!child->impl->checkNewPositionAcceptanceIter(isManualOperation)){
+            return false;
+        }
+    }
+    return true;
+}
+
+
+bool Item::onCheckNewPosition(bool isManualOperation)
 {
     return true;
 }
 
 
-void Item::onAttachedToParent()
+void Item::onAddedToParent()
 {
 
+}
+
+
+bool Item::onChildItemAboutToBeAdded(Item* childItem, bool isManualOperation)
+{
+    return true;
 }
 
 
@@ -698,14 +760,36 @@ void Item::onConnectedToRoot()
 }
 
 
-void Item::detachFromParentItem()
+void Item::Impl::justRemoveSelfFromParent(bool doClearSelf)
 {
-    ItemPtr self = this;
-    impl->doDetachFromParentItem(false, false);
+    if(self->prevItem_){
+        self->prevItem_->nextItem_ = self->nextItem_;
+    } else {
+        self->parent_->firstChild_ = self->nextItem_;
+    }
+    if(self->nextItem_){
+        self->nextItem_->prevItem_ = self->prevItem_;
+    } else {
+        self->parent_->lastChild_ = self->prevItem_;
+    }
+    --self->parent_->numChildren_;
+
+    if(doClearSelf){
+        self->parent_ = nullptr;
+        self->prevItem_ = nullptr;
+        self->nextItem_ = nullptr;
+    }
 }
 
 
-void Item::Impl::doDetachFromParentItem(bool isMoving, bool isParentBeingDeleted)
+void Item::removeFromParentItem()
+{
+    ItemPtr self = this;
+    impl->doRemoveFromParentItem(false, false);
+}
+
+
+void Item::Impl::doRemoveFromParentItem(bool isMoving, bool isParentBeingDeleted)
 {
     Item* prevParent = self->parentItem();
     if(!prevParent){
@@ -731,25 +815,11 @@ void Item::Impl::doDetachFromParentItem(bool isMoving, bool isParentBeingDeleted
         self->parent_->impl->addToItemsToEmitSigSubTreeChanged();
     }
 
-    if(self->prevItem_){
-        self->prevItem_->nextItem_ = self->nextItem_;
-    } else {
-        self->parent_->firstChild_ = self->nextItem_;
-    }
-    if(self->nextItem_){
-        self->nextItem_->prevItem_ = self->prevItem_;
-    } else {
-        self->parent_->impl->lastChild = self->prevItem_;
-    }
-    
-    --self->parent_->numChildren_;
-    self->parent_ = nullptr;
-    self->prevItem_ = nullptr;
-    self->nextItem_ = nullptr;
+    justRemoveSelfFromParent(true);
 
     attributes.reset(SubItem);
 
-    self->onDetachedFromParent();
+    self->onRemovedFromParent(prevParent);
 
     if(rootItem){
         rootItem->notifyEventOnSubTreeRemoved(self, isMoving);
@@ -773,7 +843,7 @@ void Item::Impl::doDetachFromParentItem(bool isMoving, bool isParentBeingDeleted
 }
 
 
-void Item::onDetachedFromParent()
+void Item::onRemovedFromParent(Item* /* parentItem */)
 {
 
 }
@@ -782,7 +852,7 @@ void Item::onDetachedFromParent()
 void Item::clearChildren()
 {
     while(childItem()){
-        childItem()->detachFromParentItem();
+        childItem()->removeFromParentItem();
     }
 }
 
@@ -973,36 +1043,33 @@ SignalProxy<void(bool on)> Item::sigCheckToggled(int checkId)
 
 Item* Item::find(const std::string& path, const std::function<bool(Item* item)>& pred)
 {
-    return RootItem::instance()->findItem(path, pred, false, false);
+    return RootItem::instance()->findItem(path, pred, true);
 }
 
 
 Item* Item::findItem
-(const std::string& path, std::function<bool(Item* item)> pred,
- bool isFromDirectChild, bool isSubItem) const
+(const std::string& path, std::function<bool(Item* item)> pred, bool isRecursive) const
 {
     ItemPath ipath(path);
     if(ipath.begin() == ipath.end()){
-        return impl->findItem(pred, isFromDirectChild, isSubItem);
+        return impl->findItem(pred, isRecursive);
     }
-    return impl->findItem(ipath.begin(), ipath.end(), pred, isFromDirectChild, isSubItem);
+    return impl->findItem(ipath.begin(), ipath.end(), pred, isRecursive);
 }
 
 
 // Use the breadth-first search
-Item* Item::Impl::findItem(const std::function<bool(Item* item)>& pred, bool isFromDirectChild, bool isSubItem) const
+Item* Item::Impl::findItem(const std::function<bool(Item* item)>& pred, bool isRecursive) const
 {
     for(auto child = self->childItem(); child; child = child->nextItem()){
-        if((!isSubItem || child->isSubItem()) && (!pred || pred(child))){
+        if(!pred || pred(child)){
             return child;
         }
     }
-    if(!isFromDirectChild){
+    if(isRecursive){
         for(auto child = self->childItem(); child; child = child->nextItem()){
-            if(!isSubItem || child->isSubItem()){
-                if(auto found = child->impl->findItem(pred, isFromDirectChild, isSubItem)){
-                    return found;
-                }
+            if(auto found = child->impl->findItem(pred, isRecursive)){
+                return found;
             }
         }
     }
@@ -1013,7 +1080,7 @@ Item* Item::Impl::findItem(const std::function<bool(Item* item)>& pred, bool isF
 // Use the breadth-first search
 Item* Item::Impl::findItem
 (ItemPath::iterator iter, ItemPath::iterator end,  const std::function<bool(Item* item)>& pred,
- bool isFromDirectChild, bool isSubItem) const
+ bool isRecursive) const
 {
     if(iter == end){
         if(!pred || pred(self)){
@@ -1022,18 +1089,16 @@ Item* Item::Impl::findItem
         return nullptr;
     }
     for(auto child = self->childItem(); child; child = child->nextItem()){
-        if((child->name() == *iter) && (!isSubItem || child->isSubItem())){
-            if(auto item = child->impl->findItem(iter + 1, end, pred, true, isSubItem)){
+        if(child->name() == *iter){
+            if(auto item = child->impl->findItem(iter + 1, end, pred, false)){
                 return item;
             }
         }
     }
-    if(!isFromDirectChild){
+    if(isRecursive){
         for(auto child = self->childItem(); child; child = child->nextItem()){
-            if(!isSubItem || child->isSubItem()){
-                if(auto item = child->impl->findItem(iter, end, pred, false, isSubItem)){
-                    return item;
-                }
+            if(auto item = child->impl->findItem(iter, end, pred, true)){
+                return item;
             }
         }
     }
@@ -1054,69 +1119,76 @@ bool Item::isOwnedBy(Item* item) const
 }
 
 
-ItemList<> Item::childItems() const
+ItemList<> Item::childItems(std::function<bool(Item* item)> pred) const
+{
+    return getDescendantItems(pred, false);
+}
+
+
+ItemList<> Item::descendantItems(std::function<bool(Item* item)> pred) const
+{
+    return getDescendantItems(pred, true);
+}
+
+
+ItemList<Item> Item::getDescendantItems(std::function<bool(Item* item)> pred, bool isRecursive) const
 {
     ItemList<> items;
-    for(auto child = childItem(); child; child = child->nextItem()){
-        items.push_back(child);
-    }
+    impl->getDescendantItemsIter(this, items, pred, isRecursive);
     return items;
 }
 
 
-ItemList<> Item::descendantItems() const
-{
-    ItemList<> items;
-    impl->getDescendantItemsIter(this, items);
-    return items;
-}
-
-
-void Item::Impl::getDescendantItemsIter(const Item* parentItem, ItemList<>& io_items) const
+void Item::Impl::getDescendantItemsIter
+(const Item* parentItem, ItemList<>& io_items, const std::function<bool(Item* item)>& pred,
+ bool isRecursive) const
 {
     for(auto child = parentItem->childItem(); child; child = child->nextItem()){
-        io_items.push_back(child);
-        if(child->childItem()){
-            getDescendantItemsIter(child, io_items);
+        if(!pred || pred(child)){
+            io_items.push_back(child);
+        }
+        if(isRecursive && child->childItem()){
+            getDescendantItemsIter(child, io_items, pred, isRecursive);
         }
     }
 }
 
 
-ItemList<> Item::selectedDescendantItems() const
+ItemList<> Item::selectedDescendantItems(std::function<bool(Item* item)> pred) const
 {
     ItemList<> items;
-    impl->getSelectedDescendantItemsIter(this, items);
+    impl->getSelectedDescendantItemsIter(this, items, pred);
     return items;
 }
 
 
-void Item::Impl::getSelectedDescendantItemsIter(const Item* parentItem, ItemList<>& io_items) const
+void Item::Impl::getSelectedDescendantItemsIter
+(const Item* parentItem, ItemList<>& io_items, std::function<bool(Item* item)> pred) const
 {
     for(auto child = parentItem->childItem(); child; child = child->nextItem()){
-        if(child->isSelected()){
+        if(child->isSelected() && (!pred || pred(child))){
             io_items.push_back(child);
         }
         if(child->childItem()){
-            getSelectedDescendantItemsIter(child, io_items);
+            getSelectedDescendantItemsIter(child, io_items, pred);
         }
     }
 }
 
 
-bool Item::traverse(std::function<bool(Item*)> function)
+bool Item::traverse(std::function<bool(Item*)> pred)
 {
-    return impl->traverse(this, function);
+    return impl->traverse(this, pred);
 }
 
 
-bool Item::Impl::traverse(Item* item, const std::function<bool(Item*)>& function)
+bool Item::Impl::traverse(Item* item, const std::function<bool(Item*)>& pred)
 {
-    if(function(item)){
+    if(pred(item)){
         return true;
     }
     for(Item* child = item->childItem(); child; child = child->nextItem()){
-        if(traverse(child, function)){
+        if(traverse(child, pred)){
             return true;
         }
     }

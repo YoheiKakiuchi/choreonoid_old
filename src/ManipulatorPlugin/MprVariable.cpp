@@ -8,13 +8,15 @@ using namespace cnoid;
 
 
 MprVariable::MprVariable()
+    : MprVariable(0, 0)
 {
 
 }
 
 
-MprVariable::MprVariable(const GeneralId& id)
-    : id_(id)
+MprVariable::MprVariable(const GeneralId& id, Value value)
+    : id_(id),
+      value_(value)
 {
 
 }
@@ -29,17 +31,149 @@ MprVariable::MprVariable(const MprVariable& org)
 }
 
 
-Referenced* MprVariable::doClone(CloneMap*) const
+bool MprVariable::resetId(const GeneralId& id)
 {
-    return new MprVariable(*this);
+    if(!ownerVariableList_ || !ownerVariableList_.lock()){
+        id_ = id;
+        return true;
+    }
+    auto list = ownerVariableList_.lock();
+    return list->resetId(this, id);
 }
 
 
-MprVariable& MprVariable::operator=(const MprVariable& rhs)
+MprVariableList* MprVariable::ownerVariableList() const
 {
-    value_ = rhs.value_;
-    note_ = rhs.note_;
-    return *this;
+    return ownerVariableList_.lock();
+}
+
+
+template<class ValueType>
+bool MprVariable::setScalarValue(ValueType value)
+{
+    auto list = ownerVariableList();
+
+    if(!list){
+        value_ = value;
+        return true;
+
+    } else {
+        switch(list->variableType()){
+
+        case MprVariableList::GeneralVariable:
+            if(!list->isGeneralVariableValueTypeUnchangeable()){
+                value_ = value;
+                return true;
+            } else {
+                switch(valueType()){
+                case Int:
+                    value_ = static_cast<int>(value);
+                    return true;
+                case Double:
+                    value_ = static_cast<double>(value);
+                    return true;
+                case Bool:
+                    value_ = static_cast<bool>(value);
+                    return true;
+                case String:
+                    return false;
+                }
+            }
+            return false;
+
+        case MprVariableList::IntVariable:
+            value_ = static_cast<int>(value);
+            return true;
+
+        case MprVariableList::DoubleVariable:
+            value_ = static_cast<double>(value);
+            return true;
+
+        case MprVariableList::BoolVariable:
+            value_ = static_cast<bool>(value);
+            return true;
+
+        case MprVariableList::StringVariable:
+            return false;
+        }
+    }
+
+    return false;
+}
+
+
+bool MprVariable::setValue(int value)
+{
+    return setScalarValue(value);
+}
+
+
+bool MprVariable::setValue(double value)
+{
+    return setScalarValue(value);
+}
+
+
+bool MprVariable::setValue(bool value)
+{
+    return setScalarValue(value);
+}
+
+
+bool MprVariable::setValue(const std::string& value)
+{
+    auto list = ownerVariableList();
+
+    if(!list){
+        value_ = value;
+        return true;
+
+    } else {
+        switch(list->variableType()){
+
+        case MprVariableList::GeneralVariable:
+            if(!list->isGeneralVariableValueTypeUnchangeable()){
+                value_ = value;
+                return true;
+            } else {
+                switch(valueType()){
+                case Int:
+                case Double:
+                case Bool:
+                    return false;
+                case String:
+                    value_ = value;
+                    return true;
+                }
+            }
+            return false;
+
+        case MprVariableList::IntVariable:
+        case MprVariableList::DoubleVariable:
+        case MprVariableList::BoolVariable:
+            return false;
+
+        case MprVariableList::StringVariable:
+            value_ = value;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
+bool MprVariable::setValue(const Value& value)
+{
+    switch(valueType(value)){
+    case Int:    return setValue(intValue(value));
+    case Double: return setValue(doubleValue(value));
+    case Bool:   return setValue(boolValue(value));
+    case String: return setValue(stringValue(value));
+    default:
+        break;
+    }
+    return false;
 }
 
 
@@ -91,58 +225,50 @@ static void changeValueToBool(MprVariable::Value& value)
 }
 
 
-void MprVariable::changeValueType(int typeId)
+bool MprVariable::changeValueType(TypeId typeId)
 {
-    int prevTypeId = valueTypeId();
+    int prevTypeId = valueType();
     if(typeId == prevTypeId){
-        return;
+        return true;
     }
-    switch(typeId){
-    case Int:
-        changeValueToInt(value_);
-        break;
-    case Double:
-        changeValueToDouble(value_);
-        break;
-    case Bool:
-        changeValueToBool(value_);
-        break;
-    case String:
-        value_ = string();
-        break;
-    default:
-        break;
+    if(auto list = ownerVariableList()){
+        if(list->variableType() == MprVariableList::GeneralVariable &&
+           !list->isGeneralVariableValueTypeUnchangeable()){
+            switch(typeId){
+            case Int:    changeValueToInt(value_);    return true;
+            case Double: changeValueToDouble(value_); return true;
+            case Bool:   changeValueToBool(value_);   return true;
+            case String: value_ = string();           return true;
+            default: break;
+            }
+        }
     }
+    return false;
 }
-        
 
-std::string MprVariable::valueString() const
+
+std::string MprVariable::toString() const
 {
-    switch(valueTypeId()){
+    switch(valueType()){
     case Int:
-        return std::to_string(toInt());
+        return std::to_string(intValue());
     case Double:
-        return std::to_string(toDouble());
+        return std::to_string(doubleValue());
     case Bool:
-        return toBool() ? "true" : "false";
+        return boolValue() ? "true" : "false";
     case String:
-        return toString();
+        return stringValue();
     default:
         return string();
     }
 }
 
 
-MprVariableList* MprVariable::owner() const
+void MprVariable::notifyUpdate(int flags)
 {
-    return owner_.lock();
-}
-
-
-void MprVariable::notifyUpdate()
-{
-    if(auto owner__ = owner()){
-        owner__->notifyVariableUpdate(this);
+    sigUpdated_(flags);
+    if(auto list = ownerVariableList()){
+        list->notifyVariableUpdate(this, flags);
     }
 }
 

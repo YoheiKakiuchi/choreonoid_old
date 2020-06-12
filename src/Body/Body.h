@@ -108,6 +108,7 @@ public:
     }
 
     Link* findUniqueEndLink() const;
+    Link* lastSerialLink() const;
 
     /**
        The number of the links that are actual joints.
@@ -315,6 +316,7 @@ private:
     BodyImpl* impl;
 
     void initialize();
+    void resetLinkName(Link* link, const std::string& name);
     Link* cloneLinkTree(const Link* orgLink, CloneMap* cloneMap);
     Link* createEmptyJoint(int jointId);
     Device* findDeviceSub(const std::string& name) const;
@@ -323,6 +325,8 @@ private:
     void insertCache(const std::string& name, Referenced* cache);
     BodyHandler* findHandler(std::function<bool(BodyHandler*)> isTargetHandlerType);
     void setVirtualJointForcesSub(); // deprecated
+
+    friend class Link;
 };
 
 template<> CNOID_EXPORT double Body::info(const std::string& key) const;

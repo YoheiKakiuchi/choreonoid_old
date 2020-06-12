@@ -61,10 +61,8 @@ public:
     //! This function creates a copy of the item including its descendant items
     Item* duplicateSubTree() const;
 
-    //! \deprecated. Use duplicateSubTree.
-    Item* duplicateAll() const {
-        return duplicateSubTree();
-    }
+    [[deprecated("Use Item::duplicateSubTree.")]]
+    Item* duplicateAll() const { return duplicateSubTree(); }
 
     const std::string& name() const { return name_; }
     // Return true if the name is actually changed
@@ -113,6 +111,7 @@ public:
     Item* childItem() const { return firstChild_; }
     Item* prevItem() const { return prevItem_; }
     Item* nextItem() const { return nextItem_; }
+    Item* lastChildItem() const { return lastChild_; }
     Item* parentItem() const { return parent_; }
 
     /**
@@ -143,8 +142,28 @@ public:
     [[deprecated("Use Item::setSubItemAttributes and Item::insertChild(Item* position, Item* item, bool isManualOperation).")]]
     bool insertSubItem(Item* item, Item* nextItem);
 
-    void detachFromParentItem();
+    void removeFromParentItem();
+
+    [[deprecated("Use Item::removeFromParentItem.")]]
+    void detachFromParentItem() { removeFromParentItem(); }
+    
     void clearChildren();
+
+    typedef std::function<bool(Item* item)> ItemPredicate;
+
+    template<class ItemType>
+    static ItemPredicate getItemPredicate() {
+        return [](Item* item) -> bool { return dynamic_cast<ItemType*>(item); };
+    }
+    template<class ItemType>
+    static ItemPredicate getItemPredicate(std::function<bool(ItemType* item)> pred) {
+        return [pred](Item* item){
+            if(auto casted = dynamic_cast<ItemType*>(item)){
+                return pred ? pred(casted) : true;
+            }
+            return false;
+        };
+    }
 
     /**
        This is equivalent to RootItem::instance()->findItem(path);
@@ -152,75 +171,61 @@ public:
     static Item* find(const std::string& path) {
         return find(path, nullptr);
     }
-    
     template<class ItemType>
     ItemType* find(const std::string& path = "") {
-        return static_cast<ItemType*>(
-            find(path, [](Item* item) -> bool { return dynamic_cast<ItemType*>(item); }));
+        return static_cast<ItemType*>(find(path, getItemPredicate<ItemType>()));
     }
     
     /**
        Find an item that has the corresponding path to it in the sub tree
     */
     Item* findItem(const std::string& path) const {
-        return findItem(path, nullptr, false, false);
+        return findItem(path, nullptr, true);
     }
-    
     template<class ItemType>
-    ItemType* findItem(const std::string& path = "") const {
+    ItemType* findItem(const std::string& path) const {
         return static_cast<ItemType*>(
-            findItem(
-                path, [](Item* item) -> bool { return dynamic_cast<ItemType*>(item); }, false, false));
+            findItem(path, getItemPredicate<ItemType>(), true));
     }
-
     template<class ItemType>
-    ItemType* findItem(const std::function<bool(ItemType* item)>& pred) const {
+    ItemType* findItem(std::function<bool(ItemType* item)> pred = nullptr) const {
         return static_cast<ItemType*>(
-            findItem(
-                "",
-                [pred](Item* item) -> bool {
-                    if(auto casted = dynamic_cast<ItemType*>(item)){ return pred(casted); }
-                    return false; },
-                false, false));
+            findItem("", getItemPredicate<ItemType>(pred), true));
     }
     
     /**
        Find an item that has the corresponding path from a child item to it
     */
-    Item* findChildItem(const std::string& path) const {
-        return findItem(path, nullptr, true, false);
+    Item* findChildItem(const std::string& path, std::function<bool(Item* item)> pred = nullptr) const {
+        return findItem(path, pred, false);
     }
-    
     template<class ItemType>
-    ItemType* findChildItem(const std::string& path = "") const {
+    ItemType* findChildItem(const std::string& path, std::function<bool(ItemType* item)> pred = nullptr) const {
         return static_cast<ItemType*>(
-            findItem(
-                path, [](Item* item) -> bool { return dynamic_cast<ItemType*>(item); }, true, false));
+            findItem(path, getItemPredicate<ItemType>(pred), false));
     }
-
     template<class ItemType>
-    ItemType* findChildItem(const std::function<bool(ItemType* item)>& pred) const {
+    ItemType* findChildItem(std::function<bool(ItemType* item)> pred = nullptr) const {
         return static_cast<ItemType*>(
-            findItem(
-                "",
-                [pred](Item* item) -> bool {
-                    if(auto casted = dynamic_cast<ItemType*>(item)){ return pred(casted); }
-                    return false; },
-                true, false));
+            findItem("", getItemPredicate<ItemType>(pred), false));
     }
 
     /**
        Find a sub item that has the corresponding path from a direct sub item to it
     */
+    [[deprecated("Use Item::findChildItem with the pred function")]]
     Item* findSubItem(const std::string& path) const {
-        return findItem(path, nullptr, true, true);
+        return findItem(path, [](Item* item){ return item->isSubItem(); }, false);
     }
 
     template<class ItemType>
+    [[deprecated("Use Item::findChildItem with the pred function")]]
     ItemType* findSubItem(const std::string& path = "") const {
         return static_cast<ItemType*>(
             findItem(
-                path, [](Item* item) -> bool { return dynamic_cast<ItemType*>(item); }, true, true));
+                path,
+                getItemPredicate<ItemType>([](ItemType* item){ return item->isSubItem(); }),
+                false));
     }
     
     template <class ItemType> ItemType* findOwnerItem(bool includeSelf = false) const {
@@ -236,35 +241,32 @@ public:
 
     bool isOwnedBy(Item* item) const;
 
-    ItemList<> childItems() const;
+    ItemList<> childItems(std::function<bool(Item* item)> pred = nullptr) const;
 
-    template <class ItemType> ItemList<ItemType> childItems() const {
-        return childItems();
+    template <class ItemType>
+    ItemList<ItemType> childItems(std::function<bool(ItemType* item)> pred = nullptr) const {
+        return getDescendantItems(getItemPredicate<ItemType>(pred), false);
     }
 
-    ItemList<> descendantItems() const;
+    ItemList<> descendantItems(std::function<bool(Item* item)> pred = nullptr) const;
 
-    template <class ItemType> ItemList<ItemType> descendantItems() const {
-        return descendantItems();
+    template <class ItemType>
+    ItemList<ItemType> descendantItems(std::function<bool(ItemType* item)> pred = nullptr) const {
+        return getDescendantItems(getItemPredicate<ItemType>(pred), true);
     }
 
-    ItemList<> selectedDescendantItems() const;
+    ItemList<> selectedDescendantItems(std::function<bool(Item* item)> pred = nullptr) const;
 
-    template <class ItemType> ItemList<ItemType> selectedDescendantItems() const {
-        return selectedDescendantItems();
+    template <class ItemType>
+    ItemList<ItemType> selectedDescendantItems(std::function<bool(Item* item)> pred = nullptr) const {
+        return selectedDescendantItems(getItemPredicate<ItemType>(pred));
     }
 
-    bool traverse(std::function<bool(Item*)> function);
+    bool traverse(std::function<bool(Item*)> pred);
 
     template<class ItemType>
-    bool traverse(std::function<bool(ItemType* item)> function){
-        return Item::traverse(
-            [&function](Item* item){
-                if(auto* casted = dynamic_cast<ItemType*>(item)){
-                    return function(casted);
-                }
-                return false;
-            });
+    bool traverse(std::function<bool(ItemType* item)> pred = nullptr){
+        return Item::traverse(getItemPredicate<ItemType>(pred));
     }
 
     /**
@@ -292,7 +294,7 @@ public:
 
     SignalProxy<void()> sigDisconnectedFromRoot();
 
-    //! \deprecated
+    [[deprecated("Use Item::sigDisconnectedFromRoot.")]]
     SignalProxy<void()> sigDetachedFromRoot() { return sigDisconnectedFromRoot(); }
 
     SignalProxy<void(bool on)> sigSelectionChanged();
@@ -380,7 +382,8 @@ protected:
     //! Override this function to allow duplication of an instance.
     virtual Item* doDuplicate() const;
 
-    virtual void onAttachedToParent();
+    virtual bool onCheckNewPosition(bool isManualOperation);
+    virtual void onAddedToParent();
 
     /**
        This function is called when the item has been connected to the tree including the root item.
@@ -397,8 +400,7 @@ protected:
     */
     virtual void onPositionChanged();
 
-    virtual void onDetachedFromParent();
-    
+    virtual void onRemovedFromParent(Item* parentItem);
     virtual void onDisconnectedFromRoot();
 
     /**
@@ -425,14 +427,15 @@ private:
     ItemPtr firstChild_;
     ItemPtr nextItem_;
     Item* prevItem_;
+    Item* lastChild_;
     int numChildren_;
     std::string name_;
     bool isSelected_;
 
     static Item* find(const std::string& path, const std::function<bool(Item* item)>& pred);
     Item* findItem(
-        const std::string& path, std::function<bool(Item* item)> pred,
-        bool isFromDirectChild, bool isSubItem) const;
+        const std::string& path, std::function<bool(Item* item)> pred, bool isRecursive) const;
+    ItemList<Item> getDescendantItems(std::function<bool(Item* item)> pred, bool isRecursive) const;
     void validateClassId() const;
     ItemAddon* findAddon_(const std::type_info& type);
     ItemAddon* getAddon_(const std::type_info& type);

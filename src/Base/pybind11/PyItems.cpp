@@ -46,7 +46,8 @@ void exportPyItems(py::module m)
         .def("addSubItem", &Item::addSubItem)
         .def("isSubItem", &Item::isSubItem)
         .def("setSubItemAttributes", &Item::setSubItemAttributes)
-        .def("detachFromParentItem", &Item::detachFromParentItem)
+        .def("removeFromParentItem", &Item::removeFromParentItem)
+        .def("detachFromParentItem", &Item::removeFromParentItem) // deprecated
         .def("insertChildItem", [](Item& self, Item* item, Item* nextItem){
                 return self.insertChild(nextItem, item); })
         .def("insertChildItem", [](Item& self, Item* item, Item* nextItem, bool isManualOperation){
@@ -61,7 +62,6 @@ void exportPyItems(py::module m)
         .def("findRootItem", &Item::findRootItem)
         .def("findItem", [](Item& self, const string& path){ return self.findItem(path); })
         .def("findChildItem", [](Item& self, const string& path){ return self.findChildItem(path); })
-        .def("findSubItem", [](Item& self, const string& path){ return self.findSubItem(path); })
         .def_property_readonly("headItem", &Item::headItem)
         .def("descendantItems", [](Item& self){ return self.descendantItems(); })
         .def("descendantItems", [](Item& self, py::object itemClass) {
@@ -90,6 +90,8 @@ void exportPyItems(py::module m)
         .def_property_readonly("sigSubTreeChanged", &Item::sigSubTreeChanged)
 
         // deprecated
+        .def("findSubItem", [](Item& self, const string& path){
+                return self.findChildItem(path, [](Item* item){ return item->isSubItem(); }); })
         .def("getName", &Item::name)
         .def("getChildItem", &Item::childItem)
         .def("getPrevItem", &Item::prevItem)
