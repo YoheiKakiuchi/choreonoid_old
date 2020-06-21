@@ -1,0 +1,406 @@
+items: 
+  id: 0
+  name: "Root"
+  plugin: Base
+  class: RootItem
+  children: 
+    - 
+      id: 1
+      name: "World"
+      plugin: Body
+      class: WorldItem
+      data: 
+        collisionDetection: false
+        collisionDetector: AISTCollisionDetector
+        materialTableFile: "${SHARE}/default/materials.yaml"
+      children: 
+        - 
+          id: 2
+          name: "Stand"
+          plugin: Body
+          class: BodyItem
+          isChecked: true
+          data: 
+            file: "${SHARE}/model/misc/stand.body"
+            format: CHOREONOID-BODY
+            rootPosition: [ 0, 0, 0.05 ]
+            rootAttitude: [ 
+              1, 0, 0, 
+              0, 1, 0, 
+              0, 0, 1 ]
+            jointPositions: [  ]
+            initialRootPosition: [ 0, 0, 0.05 ]
+            initialRootAttitude: [ 
+              1, 0, 0, 
+              0, 1, 0, 
+              0, 0, 1 ]
+            staticModel: true
+            collisionDetection: true
+            selfCollisionDetection: false
+            location_editable: false
+            scene_sensitive: true
+            zmp: [ 0, 0, 0 ]
+          children: 
+            - 
+              id: 3
+              name: "UR5"
+              plugin: Body
+              class: BodyItem
+              isChecked: true
+              data: 
+                file: "${SHARE}/model/UniversalRobots/UR5.body"
+                format: CHOREONOID-BODY
+                rootPosition: [ 0, 0, 0.1 ]
+                rootAttitude: [ 
+                  1, 0, 0, 
+                  0, 1, 0, 
+                  0, 0, 1 ]
+                jointDisplacements: [ -3.58947e-15, -90, 60, -60, -90, -3.75064e-15 ]
+                initialJointDisplacements: [ 0, 0, 0, 0, 0, 0 ]
+                jointPositions: [ -6.26481e-17, -1.5708, 1.0472, -1.0472, -1.5708, -6.5461e-17 ]
+                initialRootPosition: [ 0, 0, 0.1 ]
+                initialRootAttitude: [ 
+                  1, 0, 0, 
+                  0, 1, 0, 
+                  0, 0, 1 ]
+                initialJointPositions: [ 0, 0, 0, 0, 0, 0 ]
+                staticModel: false
+                collisionDetection: true
+                selfCollisionDetection: false
+                location_editable: false
+                scene_sensitive: true
+                enable_attachment: true
+                zmp: [ 0, 0, 0 ]
+              children: 
+                - 
+                  id: 4
+                  name: "SuctionCup"
+                  plugin: Body
+                  class: BodyItem
+                  isChecked: true
+                  data: 
+                    file: "${SHARE}/model/misc/suctioncup.body"
+                    format: CHOREONOID-BODY
+                    rootPosition: [ 0.434348465, 0.10915, 0.728284 ]
+                    rootAttitude: [ 
+                      1, -5.84193928e-17, 1.2246468e-16, 
+                      -5.84193928e-17, -1, 1.2246468e-16, 
+                      1.2246468e-16, -1.2246468e-16, -1 ]
+                    jointPositions: [  ]
+                    initialRootPosition: [ 0, 0, 0 ]
+                    initialRootAttitude: [ 
+                      1, 0, 0, 
+                      0, 1, 0, 
+                      0, 0, 1 ]
+                    staticModel: false
+                    collisionDetection: true
+                    selfCollisionDetection: false
+                    location_editable: false
+                    scene_sensitive: true
+                    enable_attachment: true
+                    zmp: [ 0, 0, 0 ]
+                - 
+                  id: 90
+                  name: "Tool"
+                  plugin: Body
+                  class: LinkOffsetFrameListItem
+                  data: 
+                    itemization: independent
+                    type: CoordinateFrameList
+                    format_version: 1
+                    frame_type: offset
+                  children: 
+                    - 
+                      id: 91
+                      name: "1"
+                      plugin: Base
+                      class: CoordinateFrameItem
+                      is_attached_item: true
+                      data: 
+                        id: 1
+                        translation: [ 0, 0, 0.1 ]
+                        rotation: [ 0, 0, 0 ]
+                        note: "Suction Cup"
+                    - 
+                      id: 92
+                      name: "2"
+                      plugin: Base
+                      class: CoordinateFrameItem
+                      is_attached_item: true
+                      data: 
+                        id: 2
+                        translation: [ 0, 0, -0.075 ]
+                        rotation: [ 0, 0, 0 ]
+                        note: "Wrist"
+                - 
+                  id: 100
+                  name: "Base Coordinate"
+                  plugin: Base
+                  class: CoordinateFrameListItem
+                  data: 
+                    itemization: sub
+                    type: CoordinateFrameList
+                    format_version: 1
+                    frame_type: base
+                    frames: 
+                      - 
+                        id: 1
+                        translation: [ 0.5, 0, 0.32 ]
+                        rotation: [ 0, 0, 0 ]
+                        note: "Mini Table 1"
+                      - 
+                        id: 2
+                        translation: [ 0, 0.45, 0.32 ]
+                        rotation: [ 0, 0, 0 ]
+                        note: "Long Table 1"
+                      - 
+                        id: 3
+                        translation: [ -0.5, 0, 0.32 ]
+                        rotation: [ 0, 0, 180 ]
+                        note: "Mini Table 2"
+                      - 
+                        id: 4
+                        translation: [ 1, 0, 0 ]
+                        rotation: [ 0, 0, 0 ]
+                        note: "hoge"
+        - 
+          id: 5
+          name: "Floor"
+          plugin: Body
+          class: BodyItem
+          isChecked: true
+          data: 
+            file: "${SHARE}/model/misc/grayfloor.body"
+            format: CHOREONOID-BODY
+            rootPosition: [ 0, 0, 0 ]
+            rootAttitude: [ 
+              1, 0, 0, 
+              0, 1, 0, 
+              0, 0, 1 ]
+            jointPositions: [  ]
+            initialRootPosition: [ 0, 0, 0 ]
+            initialRootAttitude: [ 
+              1, 0, 0, 
+              0, 1, 0, 
+              0, 0, 1 ]
+            staticModel: true
+            collisionDetection: true
+            selfCollisionDetection: false
+            location_editable: false
+            scene_sensitive: false
+            zmp: [ 0, 0, 0 ]
+          children: 
+            - 
+              id: 6
+              name: "MiniTable1"
+              plugin: Body
+              class: BodyItem
+              isChecked: true
+              data: 
+                file: "${SHARE}/model/misc/minitable.body"
+                format: CHOREONOID-BODY
+                rootPosition: [ 0, -0.45, 0 ]
+                rootAttitude: [ 
+                  1, 0, 0, 
+                  0, 1, 0, 
+                  0, 0, 1 ]
+                jointPositions: [  ]
+                initialRootPosition: [ 0, -0.45, 0 ]
+                initialRootAttitude: [ 
+                  1, 0, 0, 
+                  0, 1, 0, 
+                  0, 0, 1 ]
+                staticModel: true
+                collisionDetection: true
+                selfCollisionDetection: false
+                location_editable: false
+                scene_sensitive: true
+                zmp: [ 0, 0, 0 ]
+              children: 
+                - 
+                  id: 7
+                  name: "Box1"
+                  plugin: Body
+                  class: BodyItem
+                  isChecked: true
+                  data: 
+                    file: "${SHARE}/model/misc/box.body"
+                    format: CHOREONOID-BODY
+                    rootPosition: [ 0, -0.45, 0.38 ]
+                    rootAttitude: [ 
+                      1, 0, 0, 
+                      0, 1, 0, 
+                      0, 0, 1 ]
+                    jointPositions: [  ]
+                    initialRootPosition: [ 0, -0.45, 0.38 ]
+                    initialRootAttitude: [ 
+                      1, 0, 0, 
+                      0, 1, 0, 
+                      0, 0, 1 ]
+                    staticModel: false
+                    collisionDetection: true
+                    selfCollisionDetection: false
+                    location_editable: true
+                    scene_sensitive: true
+                    zmp: [ 0, 0, 0 ]
+            - 
+              id: 8
+              name: "MiniTable2"
+              plugin: Body
+              class: BodyItem
+              isChecked: true
+              data: 
+                file: "${SHARE}/model/misc/minitable.body"
+                format: CHOREONOID-BODY
+                rootPosition: [ 0.5, 0, 0 ]
+                rootAttitude: [ 
+                  1, 0, 0, 
+                  0, 1, 0, 
+                  0, 0, 1 ]
+                jointPositions: [  ]
+                initialRootPosition: [ 0.5, 0, 0 ]
+                initialRootAttitude: [ 
+                  1, 0, 0, 
+                  0, 1, 0, 
+                  0, 0, 1 ]
+                staticModel: true
+                collisionDetection: true
+                selfCollisionDetection: false
+                location_editable: false
+                scene_sensitive: true
+                zmp: [ 0, 0, 0 ]
+              children: 
+                - 
+                  id: 9
+                  name: "Box2"
+                  plugin: Body
+                  class: BodyItem
+                  isChecked: true
+                  data: 
+                    file: "${SHARE}/model/misc/box.body"
+                    format: CHOREONOID-BODY
+                    rootPosition: [ 0.5, 0, 0.38 ]
+                    rootAttitude: [ 
+                      1, 0, 0, 
+                      0, 1, 0, 
+                      0, 0, 1 ]
+                    jointPositions: [  ]
+                    initialRootPosition: [ 0, 0, 0.38 ]
+                    initialRootAttitude: [ 
+                      1, 0, 0, 
+                      0, 1, 0, 
+                      0, 0, 1 ]
+                    staticModel: false
+                    collisionDetection: true
+                    selfCollisionDetection: false
+                    location_editable: true
+                    scene_sensitive: true
+                    zmp: [ 0, 0, 0 ]
+            - 
+              id: 10
+              name: "MiniTable3"
+              plugin: Body
+              class: BodyItem
+              isChecked: true
+              data: 
+                file: "${SHARE}/model/misc/minitable.body"
+                format: CHOREONOID-BODY
+                rootPosition: [ -0.5, 0, 0 ]
+                rootAttitude: [ 
+                  1, 0, 0, 
+                  0, 1, 0, 
+                  0, 0, 1 ]
+                jointPositions: [  ]
+                initialRootPosition: [ -0.5, 0, 0 ]
+                initialRootAttitude: [ 
+                  1, 0, 0, 
+                  0, 1, 0, 
+                  0, 0, 1 ]
+                staticModel: true
+                collisionDetection: true
+                selfCollisionDetection: false
+                location_editable: false
+                scene_sensitive: true
+                zmp: [ 0, 0, 0 ]
+              children: 
+                - 
+                  id: 11
+                  name: "Box3"
+                  plugin: Body
+                  class: BodyItem
+                  isChecked: true
+                  data: 
+                    file: "${SHARE}/model/misc/box.body"
+                    format: CHOREONOID-BODY
+                    rootPosition: [ -0.5, 0, 0.38 ]
+                    rootAttitude: [ 
+                      1, 0, 0, 
+                      0, 1, 0, 
+                      0, 0, 1 ]
+                    jointPositions: [  ]
+                    initialRootPosition: [ 0, 0, 0.38 ]
+                    initialRootAttitude: [ 
+                      1, 0, 0, 
+                      0, 1, 0, 
+                      0, 0, 1 ]
+                    staticModel: false
+                    collisionDetection: true
+                    selfCollisionDetection: false
+                    location_editable: true
+                    scene_sensitive: true
+                    zmp: [ 0, 0, 0 ]
+            - 
+              id: 12
+              name: "LongTable"
+              plugin: Body
+              class: BodyItem
+              isChecked: true
+              data: 
+                file: "${SHARE}/model/misc/longtable.body"
+                format: CHOREONOID-BODY
+                rootPosition: [ 0, 0.5, 0 ]
+                rootAttitude: [ 
+                  1, 0, 0, 
+                  0, 1, 0, 
+                  0, 0, 1 ]
+                jointPositions: [  ]
+                initialRootPosition: [ 0, 0.5, 0 ]
+                initialRootAttitude: [ 
+                  1, 0, 0, 
+                  0, 1, 0, 
+                  0, 0, 1 ]
+                staticModel: true
+                collisionDetection: true
+                selfCollisionDetection: false
+                location_editable: false
+                scene_sensitive: true
+                zmp: [ 0, 0, 0 ]
+views:
+  - 
+    id: 0
+    plugin: Base
+    class: SceneView
+    mounted: true
+    state: 
+      lightingMode: full
+      cameras: 
+        - 
+          camera: [ System, Perspective ]
+          isCurrent: true
+          fieldOfView: 0.698132
+          near: 0.04
+          far: 200
+          eye: [ 1.49401, 1.08103, 0.931356 ]
+          direction: [ -0.759333, -0.546287, -0.353529 ]
+          up: [ -0.286979, -0.206461, 0.935423 ]
+        - 
+          camera: [ System, Orthographic ]
+          orthoHeight: 20
+          near: 0.04
+          far: 200
+      backgroundColor: [ 0.886275, 0.886275, 0.886275 ]
+      gridColor: [ 0.701961, 0.701961, 0.701961, 1 ]
+Body: 
+  "BodySelectionManager": 
+    currentBodyItem: 3
+    currentLink: "FLANGE"

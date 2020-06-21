@@ -420,7 +420,7 @@ public:
     void writeCameraPath(Mapping& archive, const std::string& key, int cameraIndex);
     Mapping* storeCameraState(int cameraIndex, bool isInteractiveCamera, SgPosTransform* cameraTransform);
     bool restoreState(const Archive& archive);
-    void restoreCameraStates(const Listing& cameraListing);
+    bool restoreCameraStates(const Listing& cameraListing, bool isSecondTrial);
     int readCameraPath(const Mapping& archive, const char* key);
     void restoreCurrentCamera(const Mapping& cameraData);
 };
@@ -600,12 +600,12 @@ SceneWidgetImpl::SceneWidgetImpl(SceneWidget* self)
     builtinCameraTransform = new InteractiveCameraTransform;
     builtinCameraTransform->setTransform(
         SgCamera::positionLookingAt(
-            Vector3(4.0, 2.0, 1.5), Vector3(0.0, 0.0, 1.0), Vector3::UnitZ()));
+            Vector3(3.0, 1.5, 1.2), Vector3(0, 0, 0.6), Vector3::UnitZ()));
     interactiveCameraTransform = builtinCameraTransform;
 
     builtinPersCamera = new SgPerspectiveCamera;
     builtinPersCamera->setName("Perspective");
-    builtinPersCamera->setFieldOfView(radian(40.0));
+    builtinPersCamera->setFieldOfView(radian(35.0));
     builtinCameraTransform->addChild(builtinPersCamera);
 
     builtinOrthoCamera = new SgOrthographicCamera;
@@ -2832,9 +2832,27 @@ bool SceneWidgetImpl::restoreState(const Archive& archive)
     
     config->restoreState(archive);
 
+    Vector3f color;
+    if(readColor(archive, "backgroundColor", color)){
+        renderer->setBackgroundColor(color);
+        doUpdate = true;
+    }
+
+    if(readColor(archive, "gridColor", gridColor[FLOOR_GRID])){
+        doUpdate = true;
+    }
+    if(readColor(archive, "xzgridColor", gridColor[XZ_GRID])){
+    	doUpdate = true;
+    }
+    if(readColor(archive, "yzgridColor", gridColor[YZ_GRID])){
+    	doUpdate = true;
+    }
+
     const Listing& cameraListing = *archive.findListing("cameras");
     if(cameraListing.isValid()){
-        archive.addPostProcess([&](){ restoreCameraStates(cameraListing); }, 1);
+        if(!restoreCameraStates(cameraListing, false)){
+            archive.addPostProcess([&](){ restoreCameraStates(cameraListing, true); }, 1);
+        }
     } else {
         // for the compatibility to the older versions
         const Mapping& cameraData = *archive.findMapping("camera");
@@ -2872,21 +2890,6 @@ bool SceneWidgetImpl::restoreState(const Archive& archive)
         }
     }
 
-    Vector3f color;
-    if(readColor(archive, "backgroundColor", color)){
-        renderer->setBackgroundColor(color);
-        doUpdate = true;
-    }
-
-    if(readColor(archive, "gridColor", gridColor[FLOOR_GRID])){
-        doUpdate = true;
-    }
-    if(readColor(archive, "xzgridColor", gridColor[XZ_GRID])){
-    	doUpdate = true;
-    }
-    if(readColor(archive, "yzgridColor", gridColor[YZ_GRID])){
-    	doUpdate = true;
-    }
     if(doUpdate){
         updateGrids();
         update();
@@ -2896,16 +2899,26 @@ bool SceneWidgetImpl::restoreState(const Archive& archive)
 }
 
 
-void SceneWidgetImpl::restoreCameraStates(const Listing& cameraListing)
+/**
+   \todo In the second trial, the camera states that have aready restored in the first trial
+   should not be restored twice.
+*/
+bool SceneWidgetImpl::restoreCameraStates(const Listing& cameraListing, bool isSecondTrial)
 {
-    bool doUpdate = false;
+    bool restored = false;
 
-    renderer->extractPreprocessedNodes();
+    if(isSecondTrial){
+        renderer->extractPreprocessedNodes();
+    }
     
     for(int i=0; i < cameraListing.size(); ++i){
+
+        bool updated = false;
         const Mapping& state = *cameraListing[i].toMapping();
         int cameraIndex = readCameraPath(state, "camera");
+
         if(cameraIndex >= 0){
+
             Vector3 eye, direction, up;
             if(read(state, "eye", eye) &&
                read(state, "direction", direction) &&
@@ -2918,6 +2931,7 @@ void SceneWidgetImpl::restoreCameraStates(const Listing& cameraListing)
                         transform->notifyUpdate();
                     }
                 }
+                updated = true;
             }
 
             SgCamera* camera = renderer->camera(cameraIndex);
@@ -2925,35 +2939,40 @@ void SceneWidgetImpl::restoreCameraStates(const Listing& cameraListing)
                 double fov;
                 if(state.read("fieldOfView", fov)){
                     pers->setFieldOfView(fov);
-                    doUpdate = true;
+                    updated = true;
                 }
             }
             if(SgOrthographicCamera* ortho = dynamic_cast<SgOrthographicCamera*>(camera)){
                 double height;
                 if(state.read("orthoHeight", height)){
                     ortho->setHeight(height);
-                    doUpdate = true;
+                    updated = true;
                 }
             }
             double near, far;
             if(state.read("near", near)){
                 camera->setNearClipDistance(near);
-                doUpdate = true;
+                updated = true;
             }
             if(state.read("far", far)){
                 camera->setFarClipDistance(far);
-                doUpdate = true;
+                updated = true;
             }
+            if(updated){
+                camera->notifyUpdate();
+            }
+
             if(state.get("isCurrent", false)){
                 renderer->setCurrentCamera(cameraIndex);
+                restored = true;
+                if(isSecondTrial){
+                    update();
+                }
             }
-            camera->notifyUpdate();
         }
     }
 
-    if(doUpdate){
-        update();
-    }
+    return restored;
 }
 
 

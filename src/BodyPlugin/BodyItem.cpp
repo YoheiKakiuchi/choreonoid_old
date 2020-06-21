@@ -6,7 +6,6 @@
 #include "BodyItem.h"
 #include "WorldItem.h"
 #include "EditableSceneBody.h"
-#include "LinkSelectionView.h"
 #include "LinkKinematicsKitManager.h"
 #include "KinematicsBar.h"
 #include <cnoid/LeggedBodyHelper>
@@ -1902,7 +1901,7 @@ bool BodyItem::Impl::restore(const Archive& archive)
                 if(qs->size() != body->numJoints()){
                     MessageView::instance()->putln(
                         format(_("Mismatched size of the stored joint positions for {}"), self->displayName()),
-                        MessageView::WARNING);
+                        MessageView::Warning);
                 }
                 nj = std::min(qs->size(), nj);
             }
@@ -1919,7 +1918,7 @@ bool BodyItem::Impl::restore(const Archive& archive)
                 if(m != body->numJoints()){
                     MessageView::instance()->putln(
                         format(_("Mismatched size of the stored initial joint positions for {}"), self->displayName()),
-                        MessageView::WARNING);
+                        MessageView::Warning);
                 }
                 m = std::min(m, n);
             }

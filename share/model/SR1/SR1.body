@@ -458,7 +458,7 @@ links:
     jointAxis: [ 0, 1, 0 ]
     jointId: 14
     jointRange: [ -90, 90 ]
-    centerOfMass: 0 0 -0.15
+    centerOfMass: [ 0, 0, -0.15 ]
     mass: 2.0
     inertia: [
       1, 0, 0,
@@ -609,7 +609,7 @@ links:
     jointAxis: [ 0, 1, 0 ]
     jointId: 1
     jointRange: [ -90, 90 ]
-    centerOfMass: 0 0 -0.15
+    centerOfMass: [ 0, 0, -0.15 ]
     mass: 2.0
     inertia: [
       1, 0, 0,
@@ -677,7 +677,7 @@ links:
       -
         type: ForceSensor
         name: RightAnkleForceSensor
-        id: 0
+        id: 1
       - *LegShape6
 
 standardPose: [ 

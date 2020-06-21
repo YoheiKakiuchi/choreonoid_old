@@ -11,6 +11,7 @@ nnn*/
 #include <cnoid/MenuManager>
 #include <cnoid/ViewManager>
 #include <cnoid/ItemManager>
+#include <cnoid/RootItem>
 #include <cnoid/ExecutablePath>
 #include <cnoid/FileUtil>
 #include <cnoid/MessageView>
@@ -164,7 +165,8 @@ bool PythonPlugin::initialize()
     PythonConsoleView::initializeClass(this);
     
     OptionManager& opm = optionManager();
-    opm.addOption("python,p", boost::program_options::value< vector<string> >(), "load a python script file");
+    opm.addOption("python,p", boost::program_options::value< vector<string> >(), _("execute a python script file"));
+    opm.addOption("python-item", boost::program_options::value< vector<string> >(), _("load a python script as an item"));
     opm.sigInputFileOptionsParsed(1).connect(
         [&](std::vector<std::string>& inputFiles){ onInputFileOptionsParsed(inputFiles); });
     opm.sigOptionsParsed(1).connect(
@@ -195,9 +197,16 @@ void PythonPlugin::onInputFileOptionsParsed(std::vector<std::string>& inputFiles
 void PythonPlugin::onSigOptionsParsed(boost::program_options::variables_map& v)
 {
     if(v.count("python")){
-        vector<string> pythonScriptFileNames = v["python"].as<vector<string>>();
-        for(unsigned int i = 0; i < pythonScriptFileNames.size(); i++){
-            executeScriptFileOnStartup(pythonScriptFileNames[i]);
+        for(auto& script : v["python"].as<vector<string>>()){
+            executeScriptFileOnStartup(script);
+        }
+    } else if(v.count("python-item")){
+        for(auto& script : v["python-item"].as<vector<string>>()){
+            PythonScriptItemPtr item = new PythonScriptItem;
+            if(item->load(script, RootItem::instance())){
+                RootItem::instance()->addChildItem(item);
+            }
+            item->setChecked(true);
         }
     }
 }
@@ -210,7 +219,7 @@ void PythonPlugin::executeScriptFileOnStartup(const string& scriptFile)
     if(!executor().hasException()){
         MessageView::instance()->putln(_("The script finished."));
     } else {
-        MessageView::instance()->putln(MessageView::WARNING, _("Failed to run the python script."));
+        MessageView::instance()->putln(MessageView::Warning, _("Failed to run the python script."));
         python::gil_scoped_acquire lock;
         MessageView::instance()->put(executor().exceptionText());
     }
@@ -326,7 +335,7 @@ void PythonPlugin::exportLibPythonSymbols()
     if(!exported){
         MessageView::instance()->putln(
             _("Failed to export the libpython symbols. The system may not be able to load binary Python modules."),
-            MessageView::WARNING);
+            MessageView::Warning);
     }
 }
 #endif

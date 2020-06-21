@@ -19,8 +19,10 @@
 #include <cnoid/MainWindow>
 #include <cnoid/YAMLReader>
 #include <cnoid/YAMLWriter>
+#include <cnoid/FilePathVariableProcessor>
 #include <cnoid/FileUtil>
 #include <cnoid/ExecutablePath>
+#include <cnoid/Sleep>
 #include <QCoreApplication>
 #include <QResource>
 #include <QMessageBox>
@@ -290,7 +292,7 @@ bool ProjectManager::Impl::restoreObjectStates
                 mv->putln(
                     format(_("The state of the \"{0}\" {1} was not completely restored.\n{2}"),
                     name, nameSuffix, ex.message()),
-                    MessageView::WARNING);
+                    MessageView::Warning);
             }
         }
     }
@@ -338,7 +340,7 @@ ItemList<> ProjectManager::Impl::loadProject
         if(!isBuiltinProject){
             parsed = reader.load(filename);
             if(!parsed){
-                mv->putln(reader.errorMessage(), MessageView::ERROR);
+                mv->putln(reader.errorMessage(), MessageView::Error);
             }
         } else {
             QResource resource(filename.c_str());
@@ -346,15 +348,15 @@ ItemList<> ProjectManager::Impl::loadProject
                 auto data = qUncompress(QByteArray((const char*)resource.data(), (int)resource.size()));
                 parsed = reader.parse(data.constData(), data.size());
                 if(!parsed){
-                    mv->putln(reader.errorMessage(), MessageView::ERROR);
+                    mv->putln(reader.errorMessage(), MessageView::Error);
                 }
             } else {
-                mv->putln(format(_("Resource \"{0}\" is not found."), filename), MessageView::ERROR);
+                mv->putln(format(_("Resource \"{0}\" is not found."), filename), MessageView::Error);
             }
         }
         
         if(parsed && reader.numDocuments() == 0){
-            mv->putln(_("The project file is empty."), MessageView::WARNING);
+            mv->putln(_("The project file is empty."), MessageView::Warning);
 
         } else if(parsed){
             Archive* archive = static_cast<Archive*>(reader.document()->toMapping());
@@ -380,8 +382,22 @@ ItemList<> ProjectManager::Impl::loadProject
                 }
                 if(!isBuiltinProject){
                     mainWindow->show();
-                    mv->flush();
-                    mainWindow->repaint();
+
+#ifdef Q_OS_UNIX
+                    /**
+                       There is a delay between executing the show function of a window and the window
+                       is actually displayed. If the event loop is blocked by an item that takes a long
+                       time to load before the window is displayed, the window will remain hidden for
+                       a while. This behavior gives the user the bad impression that the application is
+                       slow to start. To avoid this problem, the window should be displayed before any
+                       items are loaded. This can be achieved by decreasing the time difference from
+                       the window display delay by the following sleep.
+                    */
+                    msleep(2);
+#endif
+                    // The following functions are probably useless for this problem.
+                    // mv->flush();
+                    // mainWindow->repaint();
                 }
             } else {
                 if(isBuiltinProject || perspectiveCheck->isChecked()){
@@ -455,10 +471,10 @@ ItemList<> ProjectManager::Impl::loadProject
                 if(numRestoredItems < numArchivedItems){
                     int numUnloaded = numArchivedItems - numRestoredItems;
                     if(!isBuiltinProject){
-                        mv->putln(format(_("{0} item(s) were not loaded."), numUnloaded), MessageView::WARNING);
+                        mv->putln(format(_("{0} item(s) were not loaded."), numUnloaded), MessageView::Warning);
                     } else {
                         mv->putln(format(_("{0} item(s) were not loaded in the builtin project \"{1}\"."),
-                                         numUnloaded, filename), MessageView::WARNING);
+                                         numUnloaded, filename), MessageView::Warning);
                     }
                 }
                 
@@ -496,13 +512,19 @@ ItemList<> ProjectManager::Impl::loadProject
     if(!loaded){
         mv->notify(
             format(_("Loading project \"{}\" failed. Any valid objects were not loaded."), filename),
-            MessageView::ERROR);
+            MessageView::Error);
         clearCurrentProjectFile();
     }
 
     --projectBeingLoadedCounter;
 
     ::sigProjectLoaded(projectBeingLoadedCounter);
+
+    if(!self->isLoadingProject()){
+        auto vp = FilePathVariableProcessor::systemInstance();
+        vp->clearBaseDirectory();
+        vp->clearProjectDirectory();
+    }
     
     return loadedItems;
 }
@@ -549,7 +571,7 @@ void ProjectManager::Impl::saveProject(const string& filename, Item* item)
     if(!writer.isFileOpen()){
         mv->put(
             format(_("Can't open file \"{}\" for writing.\n"), filename),
-            MessageView::ERROR);
+            MessageView::Error);
         return;
     }
 
@@ -627,7 +649,7 @@ void ProjectManager::Impl::saveProject(const string& filename, Item* item)
             setCurrentProjectFile(filename);
         }
     } else {
-        mv->notify(_("Saving the project file failed."), MessageView::ERROR);
+        mv->notify(_("Saving the project file failed."), MessageView::Error);
         clearCurrentProjectFile();
     }
 }

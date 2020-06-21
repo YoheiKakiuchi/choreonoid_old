@@ -80,18 +80,12 @@ LinkPositionView::Impl::Impl(LinkPositionView* self)
     hbox->addWidget(&targetLabel);
     hbox->addStretch();
     topLayout->addLayout(hbox);
-    
-    auto scrollArea = new QScrollArea;
-    scrollArea->setStyleSheet("QScrollArea {background: transparent;}");
-    scrollArea->setFrameShape(QFrame::NoFrame);
-    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scrollArea->setWidgetResizable(true);
-    topLayout->addWidget(scrollArea);
-    
+
     positionWidget = new LinkPositionWidget(self);
+    positionWidget->setTargetLinkType(LinkPositionWidget::IkLink);
     positionWidget->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    scrollArea->setWidget(positionWidget);
     positionWidget->setAutoFillBackground(false);
+    topLayout->addWidget(positionWidget);
 }
 
 
@@ -107,7 +101,8 @@ void LinkPositionView::onActivated()
     
     impl->activeStateConnection =
         bsm->sigCurrentSpecified().connect(
-            [&](BodyItem* bodyItem, Link* link){
+            [this, bsm](BodyItem* bodyItem, Link* link){
+                if(!link) link = bsm->currentLink();
                 impl->setTargetBodyAndLink(bodyItem, link);
             });
 }
@@ -117,11 +112,11 @@ bool LinkPositionView::Impl::setTargetBodyAndLink(BodyItem* bodyItem, Link* link
 {
     positionWidget->setTargetBodyAndLink(bodyItem, link);
     auto targetBodyItem = positionWidget->targetBodyItem();
-    if(targetBodyItem){
+    auto targetLink = positionWidget->targetLink();
+    if(targetBodyItem && targetLink){
         targetLabel.setText(
             format("{0} / {1}",
-                   targetBodyItem->displayName(),
-                   positionWidget->targetLink()->name()).c_str());
+                   targetBodyItem->displayName(), targetLink->name()).c_str());
     } else {
         targetLabel.setText("------");
     }
