@@ -13,6 +13,18 @@ using namespace std;
 using namespace cnoid;
 using fmt::format;
 
+namespace {
+
+class PanelArea : public QWidget
+{
+public:
+    vector<function<QSize()>> minimumPanelSizeHintFunctions;
+
+    virtual QSize minimumSizeHint() const override;
+};
+
+}
+
 namespace cnoid {
 
 class ItemTreePanelDialog::Impl
@@ -29,6 +41,7 @@ public:
     ItemTreeWidget itemTreeWidget;
     ScopedConnection itemTreeWidgetConnection;
     QFrame panelFrame;
+    PanelArea panelArea;
     QVBoxLayout panelLayout;
     QLabel panelCaptionLabel;
     QLabel defaultPanelLabel;
@@ -37,10 +50,11 @@ public:
     Impl(ItemTreePanelDialog* self);
     void initialize();
     ~Impl();
+    void showPanel();
     void onSelectionChanged(const ItemList<>& items);
-    void activateItem(Item* item);
-    void deactivateCurrentPanel();
-    void deactivatePanel(ItemTreePanelBase* panel);
+    void activateItem(Item* item, bool isNewItem);
+    void deactivateCurrentPanel(bool doClearCurrentItem);
+    void deactivatePanel(ItemTreePanelBase* panel, bool isPanelAccepted);
     void clear();
 };
 
@@ -62,10 +76,20 @@ bool ItemTreePanelBase::activate
 }
 
 
-void ItemTreePanelBase::deactivate()
+void ItemTreePanelBase::accept()
 {
     if(currentDialogImpl){
-        currentDialogImpl->deactivatePanel(this);
+        currentDialogImpl->deactivatePanel(this, true);
+    } else {
+        onDeactivated();
+    }
+}
+
+
+void ItemTreePanelBase::reject()
+{
+    if(currentDialogImpl){
+        currentDialogImpl->deactivatePanel(this, false);
     } else {
         onDeactivated();
     }
@@ -108,25 +132,33 @@ void ItemTreePanelDialog::Impl::initialize()
     hbox = new QHBoxLayout;
     itemTreeWidget.setDragDropEnabled(false);
     itemTreeWidget.setCheckColumnShown(false);
-    hbox->addWidget(&itemTreeWidget);
+    QFontMetrics metrics(itemTreeWidget.font());
+    int width = metrics.averageCharWidth() * 24;
+    itemTreeWidget.setMinimumWidth(width);
+    itemTreeWidget.setMaximumWidth(width);
+    hbox->addWidget(&itemTreeWidget, 0);
 
     int mh = self->style()->pixelMetric(QStyle::PM_LayoutLeftMargin);
     int mv = self->style()->pixelMetric(QStyle::PM_LayoutTopMargin);
 
     panelFrame.setFrameStyle(QFrame::StyledPanel);
     panelFrame.setLineWidth(2);
-    panelFrame.setLayout(&panelLayout);
+    auto frameLayout = new QVBoxLayout;
+    frameLayout->setContentsMargins(0, mh / 2, 0, 0);
+    frameLayout->setSpacing(0);
     panelCaptionLabel.setStyleSheet("font-weight: bold");
     panelCaptionLabel.setAlignment(Qt::AlignHCenter);
-    panelLayout.addWidget(&panelCaptionLabel);
-    panelLayout.setContentsMargins(0, mh / 2, 0, 0);
-    panelLayout.setSpacing(0);
+    frameLayout->addWidget(&panelCaptionLabel);
+    frameLayout->addWidget(&panelArea);
+    panelFrame.setLayout(frameLayout);
+
+    panelArea.setLayout(&panelLayout);
+    panelLayout.setContentsMargins(0, 0, 0, 0);
     defaultPanelLabel.setAlignment(Qt::AlignCenter);
     defaultPanelLabel.setContentsMargins(mh * 2, mv, mh * 2, mv);
     panelLayout.addWidget(&defaultPanelLabel, Qt::AlignCenter);
 
-    hbox->addWidget(&panelFrame);
-
+    hbox->addWidget(&panelFrame, 1);
     vbox->addLayout(hbox);
 
     itemTreeWidget.customizeVisibility<Item>(
@@ -161,10 +193,14 @@ ItemTreeWidget* ItemTreePanelDialog::itemTreeWidget()
 
 
 void ItemTreePanelDialog::registerPanel_
-(const std::type_info& type, std::function<ItemTreePanelBase*(Item* item)> panelFunction)
+(const std::type_info& type,
+ const std::function<ItemTreePanelBase*(Item* item)>& panelFunction,
+ const std::function<QSize()>& minimumSizeHintFunction)
 {
     impl->panelFunctions.setFunction(
         type, [this, panelFunction](Item* item){ impl->panelToActivate = panelFunction(item); });
+
+    impl->panelArea.minimumPanelSizeHintFunctions.push_back(minimumSizeHintFunction);
 }
 
 
@@ -185,13 +221,17 @@ bool ItemTreePanelDialog::setTopItem(Item* item)
 
 void ItemTreePanelDialog::show()
 {
-    auto items = impl->itemTreeWidget.getSelectedItems();
-    if(items.empty()){
-        items = impl->itemTreeWidget.getItems();
-    }
-    impl->onSelectionChanged(items);
+    impl->showPanel();
+
+    // The label must be displayed when the dialog is shown
+    // to ensure the necessary dialog size
+    bool isVisible = impl->panelCaptionLabel.isVisible();
+    impl->panelCaptionLabel.setVisible(true);
     
     Dialog::show();
+
+    // Restore the label visibility
+    impl->panelCaptionLabel.setVisible(isVisible);
     
     if(!impl->lastDialogPosition.isNull()){
         setGeometry(impl->lastDialogPosition);
@@ -199,9 +239,27 @@ void ItemTreePanelDialog::show()
 }
 
 
-bool ItemTreePanelDialog::setCurrentItem(Item* item)
+void ItemTreePanelDialog::Impl::showPanel()
 {
-    return impl->itemTreeWidget.selectOnly(item);
+    auto items = itemTreeWidget.getSelectedItems();
+    if(items.empty()){
+        items = itemTreeWidget.getItems();
+    }
+    onSelectionChanged(items);
+}
+
+
+bool ItemTreePanelDialog::setCurrentItem(Item* item, bool isNewItem)
+{
+    impl->itemTreeWidgetConnection.block();
+    bool selected = impl->itemTreeWidget.selectOnly(item);
+    impl->itemTreeWidgetConnection.unblock();
+
+    if(selected){
+        impl->activateItem(item, isNewItem);
+    }
+
+    return selected;
 }
 
 
@@ -212,17 +270,18 @@ void ItemTreePanelDialog::Impl::onSelectionChanged(const ItemList<>& items)
     if(!items.empty()){
         item = items.front();
     }
-    activateItem(item);
+    activateItem(item, false);
 }
 
 
-void ItemTreePanelDialog::Impl::activateItem(Item* item)
+void ItemTreePanelDialog::Impl::activateItem(Item* item, bool isNewItem)
 {
     if(item == currentItem && !needToUpdatePanel){
         return;
     }
-    deactivateCurrentPanel();
+    deactivateCurrentPanel(false);
     currentItem = item;
+    panelCaptionLabel.setText(_("Unkown"));
 
     if(!item){
         panelCaptionLabel.hide();
@@ -236,7 +295,7 @@ void ItemTreePanelDialog::Impl::activateItem(Item* item)
         panelToActivate = nullptr;
         panelFunctions.dispatch(item);
         if(panelToActivate){
-            if(panelToActivate->activate(topItem, item, false, this)){
+            if(panelToActivate->activate(topItem, item, isNewItem, this)){
                 currentPanel = panelToActivate;
                 defaultPanelLabel.hide();
                 panelCaptionLabel.setText(currentPanel->caption().c_str());
@@ -246,7 +305,6 @@ void ItemTreePanelDialog::Impl::activateItem(Item* item)
             }
             panelToActivate = nullptr;
         } else {
-            panelCaptionLabel.setText(_("Unkown"));
             panelCaptionLabel.show();
             defaultPanelLabel.show();
             defaultPanelLabel.setText(
@@ -262,7 +320,7 @@ void ItemTreePanelDialog::Impl::activateItem(Item* item)
 }
 
 
-void ItemTreePanelDialog::Impl::deactivateCurrentPanel()
+void ItemTreePanelDialog::Impl::deactivateCurrentPanel(bool doClearCurrentItem)
 {
     if(currentPanel){
         currentPanel->onDeactivated();
@@ -270,25 +328,38 @@ void ItemTreePanelDialog::Impl::deactivateCurrentPanel()
         currentPanel->hide();
         currentPanel = nullptr;
     }
-    currentItem.reset();
+    needToUpdatePanel = true;
+    
+    if(currentItem && doClearCurrentItem){
+        itemTreeWidgetConnection.block();
+        currentItem->setSelected(false);
+        currentItem.reset();
+        itemTreeWidgetConnection.unblock();
+        activateItem(nullptr, false);
+    }
 }
 
 
-void ItemTreePanelDialog::Impl::deactivatePanel(ItemTreePanelBase* panel)
+void ItemTreePanelDialog::Impl::deactivatePanel(ItemTreePanelBase* panel, bool isPanelAccepted)
 {
+    int numItems = itemTreeWidget.getItems().size();
+    
     if(panel == currentPanel){
-        deactivateCurrentPanel();
-        needToUpdatePanel = true;
+        deactivateCurrentPanel(!isPanelAccepted);
     }
-    //if(numItems == 0) closeDialog
-    self->show();
+
+    if(numItems <= 1){
+        self->hide();
+    } else if(isPanelAccepted){
+        showPanel();
+    }
 }
 
 
 void ItemTreePanelDialog::Impl::clear()
 {
     itemTreeWidget.setRootItem(nullptr);
-    deactivateCurrentPanel();
+    deactivateCurrentPanel(true);
     topItem.reset();
     currentItem.reset();
 }
@@ -312,3 +383,15 @@ void ItemTreePanelDialog::hideEvent(QHideEvent* event)
     impl->lastDialogPosition = geometry();
     Dialog::hideEvent(event);
 }
+
+
+QSize PanelArea::minimumSizeHint() const
+{
+    auto size = QWidget::minimumSizeHint();
+    for(auto& sizeHintFunc : minimumPanelSizeHintFunctions){
+        auto panelSize = sizeHintFunc();
+        size = size.expandedTo(panelSize);
+    }
+    return size;
+}
+  
