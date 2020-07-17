@@ -599,6 +599,7 @@ LinkKinematicsKit* MprControllerItemBase::linkKinematicsKitForControl()
 
 bool MprControllerItemBase::start()
 {
+    impl->currentLog->isErrorState_ = false;
     return onStart();
 }
 
@@ -685,6 +686,9 @@ bool MprControllerItemBase::Impl::control()
             auto& interpret = p->second;
             if(!interpret(statement)){
                 isControlActive = false;
+                if(isLogEnabled){
+                    currentLog->isErrorState_ = true;
+                }
                 io->os() << format(_("Failed to execute {0} statement. The control was terminated."),
                                    statement->label(0)) << endl;
                 break;
@@ -707,19 +711,19 @@ void MprControllerItemBase::Impl::setCurrentProgramPositionToLog(MprControllerLo
     auto topLevelProgram = currentProgram->topLevelProgram();
     auto it = topLevelProgramToSharedNameMap.find(topLevelProgram);
     if(it != topLevelProgramToSharedNameMap.end()){
-        log->topLevelProgramName = it->second;
+        log->topLevelProgramName_ = it->second;
     } else {
-        log->topLevelProgramName = make_shared<string>(topLevelProgram->name());
-        topLevelProgramToSharedNameMap[topLevelProgram] = log->topLevelProgramName;
+        log->topLevelProgramName_ = make_shared<string>(topLevelProgram->name());
+        topLevelProgramToSharedNameMap[topLevelProgram] = log->topLevelProgramName_;
     }
         
     if(currentProgram->isTopLevelProgram()){
-        log->hierachicalPosition.clear();
+        log->hierachicalPosition_.clear();
     } else if(!programStack.empty()){
-        log->hierachicalPosition = programStack.back().hierachicalPosition;
+        log->hierachicalPosition_ = programStack.back().hierachicalPosition;
     }
     int statementIndex = iterator - currentProgram->begin();
-    log->hierachicalPosition.push_back(statementIndex);
+    log->hierachicalPosition_.push_back(statementIndex);
 }
 
 
@@ -997,9 +1001,14 @@ stdx::optional<MprVariable::Value> MprControllerItemBase::Impl::getTermValue
         pos = match[0].second;
             
     } else if(regex_search(pos, end, match, intPattern)){
-        value = std::stoi(match.str(0));
-        pos = match[0].second;
-
+        errno = 0;
+        long number = strtol(match.str(0).c_str(), nullptr, 10);
+        if(errno == ERANGE || number < INT_MIN || number > INT_MAX){
+            io->os() << format(_("Integer value {0} is out of range."), match.str(0)) << endl;
+        } else {
+            value = std::stoi(match.str(0));
+            pos = match[0].second;
+        }
     } else if(regex_search(pos, end, match, boolPattern)){
         auto label = match.str(1);
         std::transform(label.begin(), label.end(), label.begin(), ::tolower);
@@ -1072,7 +1081,7 @@ bool MprControllerItemBase::Impl::interpretAssignStatement(MprAssignStatement* s
             }
         }
         if(!isValidExpression){
-            io->os() << format(_("Term {0} is invalid."), invalidTerm) << endl;
+            io->os() << format(_("Term \"{0}\" is invalid."), invalidTerm) << endl;
             break;
         }
     }
@@ -1257,4 +1266,10 @@ bool MprControllerItemBase::restore(const Archive& archive)
         archive.read("speedRatio", impl->speedRatio); // old
     }
     return true;
+}
+
+
+MprControllerLog::MprControllerLog()
+{
+    isErrorState_ = false;
 }

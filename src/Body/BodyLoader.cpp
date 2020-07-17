@@ -10,8 +10,9 @@
 #include <cnoid/SceneLoader>
 #include <cnoid/ValueTree>
 #include <cnoid/Exception>
-#include <cnoid/FileUtil>
 #include <cnoid/NullOut>
+#include <cnoid/UTF8>
+#include <cnoid/stdx/filesystem>
 #include <fmt/format.h>
 #include <mutex>
 #include "gettext.h"
@@ -64,7 +65,7 @@ public:
             link->setMass(1.0);
             link->setInertia(Matrix3::Identity());
             body->setRootLink(link);
-            body->setModelName(filesystem::path(filename).stem().string());
+            body->setModelName(toUTF8(filesystem::path(fromUTF8(filename)).stem().string()));
 
             SgNodePtr topNode = scene;
             /**
@@ -97,7 +98,7 @@ public:
         if(!isSupported){
             (*os) <<
                 fmt::format(_("The file format of \"{}\" is not supported by the body loader.\n"),
-                            filesystem::path(filename).filename().string());
+                            toUTF8(filesystem::path(fromUTF8(filename)).filename().string()));
         }
 
         return (scene != nullptr);
@@ -241,11 +242,12 @@ Body* BodyLoader::load(const std::string& filename)
 
 bool BodyLoaderImpl::load(Body* body, const std::string& filename)
 {
-    filesystem::path path(filename);
-    string ext = getExtension(path);
+    filesystem::path path(fromUTF8(filename));
     actualLoader = nullptr;
+    string ext = path.extension().string();
 
-    {
+    if(!ext.empty()) {
+        ext = ext.substr(1); // remove the dot
         std::lock_guard<std::mutex> lock(loaderMapMutex);
         auto p = unifiedExtensionMap.find(ext);
         if(p != unifiedExtensionMap.end()){

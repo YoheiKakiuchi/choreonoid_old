@@ -27,6 +27,7 @@
 #include "LazyCaller.h"
 #include <cnoid/ConnectionSet>
 #include <cnoid/Selection>
+#include <cnoid/UTF8>
 #include <cnoid/stdx/variant>
 #include <cnoid/stdx/filesystem>
 #include <QPainter>
@@ -74,10 +75,10 @@ public:
 
     void flashRecordingToggle(bool setNormal){
         if(isFlashed || setNormal){
-            recordingToggle->setText(_("O"));
+            recordingToggle->setIcon(QIcon(":/Base/icons/record.svg"));
             isFlashed = false;
         } else {
-            recordingToggle->setText(_("*"));
+            recordingToggle->setIcon(QIcon(":/Base/icons/record2.svg"));
             isFlashed = true;
         }
     }
@@ -221,8 +222,8 @@ public:
     std::thread imageOutputThread;
     std::mutex imageQueueMutex;
     std::condition_variable imageQueueCondition;
-   string filenameFormat;
-
+    string filenameFormat;
+    
     MovieRecorderImpl(ExtensionManager* ext);
     ~MovieRecorderImpl();
     void setTargetView(View* view);
@@ -453,15 +454,15 @@ MovieRecorderBar::MovieRecorderBar(MovieRecorderImpl* recorder)
       recorder(recorder)
 {
     
-    recordingToggle = addToggleButton("O", _("Toggle Recording"));
+    recordingToggle = addToggleButton(QIcon(":/Base/icons/record.svg"), _("Toggle Recording"));
     recordingToggle->sigToggled().connect(
         [this](bool on){ this->recorder->activateRecording(on, false); });
 
-    viewMarkerToggle = addToggleButton("[ ]", _("Toggle Target View Marker"));
+    viewMarkerToggle = addToggleButton(QIcon(":/Base/icons/recordtarget.svg"), _("Toggle Target View Marker"));
     viewMarkerToggle->sigToggled().connect(
         [this](bool on){ this->recorder->onViewMarkerToggled(on); });
     
-    addButton(QIcon(":/Base/icons/setup.png"), _("Show the config dialog"))
+    addButton(QIcon(":/Base/icons/setup.svg"), _("Show the config dialog"))
         ->sigClicked().connect([this](){ this->recorder->dialog->show(); });
 }
 
@@ -710,8 +711,8 @@ bool MovieRecorderImpl::setupViewAndFilenameFormat()
         return false;
     }
 
-    filesystem::path directory(dialog->directoryEntry.string());
-    filesystem::path basename(dialog->basenameEntry.string() + "{:08d}.png");
+    filesystem::path directory(fromUTF8(dialog->directoryEntry.string()));
+    filesystem::path basename(fromUTF8(dialog->basenameEntry.string() + "{:08d}.png"));
 
     if(directory.empty()){
         showWarningDialog(_("Please set a directory to output image files."));
@@ -728,7 +729,7 @@ bool MovieRecorderImpl::setupViewAndFilenameFormat()
         }
     }
 
-    filenameFormat = (directory / basename).string();
+    filenameFormat = toUTF8((directory / basename).string());
 
     if(dialog->imageSizeCheck.isChecked()){
         int width = dialog->imageWidthSpin.value();

@@ -6,6 +6,7 @@
 #include "Item.h"
 #include "MessageView.h"
 #include <cnoid/FilePathVariableProcessor>
+#include <cnoid/UTF8>
 #include <cnoid/stdx/filesystem>
 #include <map>
 #include "gettext.h"
@@ -40,12 +41,12 @@ public:
         
     Item* currentParentItem;
 
-    std::function<void()>* pointerToProcessOnSubTreeRestored;
+    std::vector<std::function<void()>>* pointerToProcessesOnSubTreeRestored;
     PostProcessList postProcesses;
 
     ArchiveSharedData(){
         currentParentItem = nullptr;
-        pointerToProcessOnSubTreeRestored = nullptr;
+        pointerToProcessesOnSubTreeRestored = nullptr;
     }
 };
 
@@ -90,7 +91,8 @@ void Archive::initSharedInfo(const std::string& projectFile)
 {
     initSharedInfo();
 
-    auto projectDir = filesystem::absolute(projectFile).parent_path().generic_string();
+    auto projectDir = toUTF8(
+        filesystem::absolute(fromUTF8(projectFile)).parent_path().generic_string());
     shared->pathVariableProcessor->setBaseDirectory(projectDir);
     shared->pathVariableProcessor->setProjectDirectory(projectDir);
 }
@@ -102,17 +104,17 @@ void Archive::inheritSharedInfoFrom(Archive& archive)
 }
 
 
-void Archive::setProcessOnSubTreeRestored(const std::function<void()>& func) const
+void Archive::addProcessOnSubTreeRestored(const std::function<void()>& func) const
 {
-    if(shared->pointerToProcessOnSubTreeRestored){
-        *shared->pointerToProcessOnSubTreeRestored = func;
+    if(shared->pointerToProcessesOnSubTreeRestored){
+        shared->pointerToProcessesOnSubTreeRestored->push_back(func);
     }
 }
 
 
-void Archive::setPointerToProcessOnSubTreeRestored(std::function<void()>* pfunc)
+void Archive::setPointerToProcessesOnSubTreeRestored(std::vector<std::function<void()>>* pfunc)
 {
-    shared->pointerToProcessOnSubTreeRestored = pfunc;
+    shared->pointerToProcessesOnSubTreeRestored = pfunc;
 }
 
 

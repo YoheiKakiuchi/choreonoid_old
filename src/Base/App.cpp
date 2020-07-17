@@ -178,6 +178,11 @@ App::Impl::Impl(App* self, int& argc, char** argv)
 
     qapplication = new QApplication(argc, argv);
 
+#ifdef Q_OS_UNIX
+    // See https://doc.qt.io/qt-5/qcoreapplication.html#locale-settings
+    setlocale(LC_NUMERIC, "C");
+#endif
+
     connect(qapplication, &QApplication::focusChanged,
             [&](QWidget* old, QWidget* now){ onFocusChanged(old, now); });
 }
@@ -228,16 +233,11 @@ void App::Impl::initialize( const char* appName, const char* vendorName, const c
     this->appName = appName;
     this->vendorName = vendorName;
 
-    setlocale(LC_ALL, ""); // for gettext
-
     QTextCodec::setCodecForLocale(QTextCodec::codecForName("UTF-8"));
     qapplication->setApplicationName(appName);
     qapplication->setOrganizationName(vendorName);
 
-    QIcon icon;
-    icon.addFile(":/Base/icons/choreonoid32.png");
-    icon.addFile(":/Base/icons/choreonoid48.png");
-    qapplication->setWindowIcon(icon);
+    qapplication->setWindowIcon(QIcon(":/Base/icons/choreonoid.svg"));
 
     AppConfig::initialize(appName, vendorName);
 

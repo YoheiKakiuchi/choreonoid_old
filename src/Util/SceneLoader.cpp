@@ -4,7 +4,8 @@
 
 #include "SceneLoader.h"
 #include "NullOut.h"
-#include "FileUtil.h"
+#include "UTF8.h"
+#include <cnoid/stdx/filesystem>
 #include <fmt/format.h>
 #include <mutex>
 #include <map>
@@ -157,21 +158,22 @@ SgNode* SceneLoader::load(const std::string& filename, bool& out_isSupportedForm
 
 SgNode* SceneLoaderImpl::load(const std::string& filename, bool* out_isSupportedFormat)
 {
-    stdx::filesystem::path filepath(filename);
+    stdx::filesystem::path filepath(fromUTF8(filename));
 
-    string ext = getExtension(filepath);
+    string ext = filepath.extension().string();
     if(ext.empty()){
         os() << fmt::format(_("The file format of \"{}\" is unknown because it lacks a file name extension."),
-                getFilename(filepath)) << endl;
+                            toUTF8(filepath.filename().string())) << endl;
         return nullptr;
     }
+    ext = ext.substr(1); // remove the dot
 
     SgNode* node = nullptr;
     auto loader = findLoader(ext);
     if(!loader){
         if(!out_isSupportedFormat){
             os() << fmt::format(_("The file format of \"{}\" is not supported by the scene loader."),
-                                getFilename(filepath)) << endl;
+                                toUTF8(filepath.filename().string())) << endl;
         }
     } else {
         if(out_isSupportedFormat){

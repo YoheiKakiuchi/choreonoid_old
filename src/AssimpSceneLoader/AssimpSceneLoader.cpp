@@ -7,9 +7,10 @@
 #include <cnoid/SceneDrawables>
 #include <cnoid/MeshFilter>
 #include <cnoid/ImageIO>
-#include <cnoid/FileUtil>
 #include <cnoid/Exception>
 #include <cnoid/NullOut>
+#include <cnoid/UTF8>
+#include <cnoid/stdx/filesystem>
 #include <cnoid/stdx/optional>
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
@@ -154,7 +155,7 @@ SgNode* AssimpSceneLoaderImpl::load(const std::string& filename)
         return nullptr;
     }
 
-    filesystem::path path(filename);
+    filesystem::path path(fromUTF8(filename));
     directoryPath = path.remove_filename();
 
     T_local = stdx::nullopt;
@@ -495,11 +496,11 @@ SgTexture* AssimpSceneLoaderImpl::convertAiTexture(unsigned int index)
     if(srcMaterial->GetTextureCount(aiTextureType_DIFFUSE) > 0){
         aiString path;
         if(srcMaterial->GetTexture(aiTextureType_DIFFUSE, 0, &path, NULL, NULL, NULL, NULL, NULL) == AI_SUCCESS){
-            filesystem::path filepath(path.data);
-            if(!checkAbsolute(filepath)){
+            filesystem::path filepath(fromUTF8(path.data));
+            if(!filepath.is_absolute()){
                 filepath = filesystem::lexically_normal(directoryPath / filepath);
             }
-            string textureFile = getAbsolutePathString(filepath);
+            string textureFile = toUTF8(stdx::filesystem::absolute(filepath).string());
 
             SgImagePtr image;
             ImagePathToSgImageMap::iterator p = imagePathToSgImageMap.find(textureFile);

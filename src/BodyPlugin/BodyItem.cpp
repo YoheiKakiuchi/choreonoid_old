@@ -34,7 +34,6 @@
 #include <cnoid/PenetrationBlocker>
 #include <cnoid/AttachmentDevice>
 #include <cnoid/HolderDevice>
-#include <cnoid/FileUtil>
 #include <cnoid/EigenArchive>
 #include <fmt/format.h>
 #include <bitset>
@@ -186,7 +185,7 @@ public:
     void setLocationEditable(bool on, bool updateInitialPositionWhenLocked);
     void createSceneBody();
     void setTransparency(float t);
-    void updateAttachment(bool on, bool forceUpdate);
+    bool updateAttachment(bool on);
     bool isAttachable() const;
     void setParentBodyItem(BodyItem* bodyItem);
     Link* attachToBodyItem(BodyItem* bodyItem);
@@ -222,12 +221,13 @@ public:
         if(!bodyLoader.load(newBody, filename)){
             return false;
         }
+        item->setBody(newBody);
+
         if(item->name().empty()){
             item->setName(newBody->modelName());
         } else {
             newBody->setName(item->name());
         }
-        item->setBody(newBody);
 
         auto itype = invocationType();
         if(itype == Dialog || itype == DragAndDrop){
@@ -1257,11 +1257,13 @@ void BodyItem::Impl::doAssign(Item* srcItem)
 
 void BodyItem::onPositionChanged()
 {
-    impl->updateAttachment(true, true);
-
     auto worldItem = findOwnerItem<WorldItem>();
     if(!worldItem){
         clearCollisions();
+    }
+
+    if(impl->updateAttachment(true)){
+        notifyUpdate();
     }
 }
 
@@ -1277,7 +1279,7 @@ LocationProxyPtr BodyItem::getLocationProxy()
 
 bool BodyItem::isLocationEditable() const
 {
-    return impl->isLocationEditable;
+    return impl->isLocationEditable && !isAttachedToParentBody();
 }
 
 
@@ -1289,12 +1291,15 @@ void BodyItem::setLocationEditable(bool on)
 
 void BodyItem::Impl::setLocationEditable(bool on, bool updateInitialPositionWhenLocked)
 {
+    if(on && self->isAttachedToParentBody()){
+        return;
+    }
+    
     if(on != isLocationEditable){
         isLocationEditable = on;
+
         if(!on && updateInitialPositionWhenLocked){
-            if(!self->isAttachedToParentBody()){
-                initialState.setRootLinkPosition(body->rootLink()->T());
-            }
+            initialState.setRootLinkPosition(body->rootLink()->T());
         }
         if(sceneBody){
             sceneBody->notifyUpdate();
@@ -1331,14 +1336,14 @@ Position BodyLocation::getLocation() const
         return rootLink->offsetPosition();
     } else {
         // global position
-        return rootLink->Ta();
+        return rootLink->T();
     }
 }
 
 
 bool BodyLocation::isEditable() const
 {
-    return impl->isLocationEditable;
+    return impl->self->isLocationEditable();
 }
 
 
@@ -1436,7 +1441,7 @@ std::string LinkLocation::getName() const
 Position LinkLocation::getLocation() const
 {
     if(auto link = refLink.lock()){
-        return link->Ta();
+        return link->T();
     }
     return Position::Identity();
 }
@@ -1536,22 +1541,23 @@ void BodyItem::setAttachmentEnabled(bool on)
 {
     if(on != impl->isAttachmentEnabled){
         impl->isAttachmentEnabled = on;
-        impl->updateAttachment(on, false);
+        impl->updateAttachment(on);
     }
 }
 
 
-void BodyItem::Impl::updateAttachment(bool on, bool forceUpdate)
+bool BodyItem::Impl::updateAttachment(bool on)
 {
+    bool updated = false;
     BodyItem* newParentBodyItem = nullptr;
     if(on && isAttachmentEnabled){
-        if(forceUpdate || !self->isAttachedToParentBody()){
-            newParentBodyItem = self->findOwnerItem<BodyItem>();
-        }
+        newParentBodyItem = self->findOwnerItem<BodyItem>();
     }
-    if(newParentBodyItem != parentBodyItem){
+    if(newParentBodyItem != parentBodyItem || on != self->isAttachedToParentBody()){
         setParentBodyItem(newParentBodyItem);
+        updated = true;
     }
+    return updated;
 }
 
 
@@ -1575,6 +1581,17 @@ bool BodyItem::Impl::isAttachable() const
         }
     }
     return false;
+}
+
+
+bool BodyItem::attachToParentBody()
+{
+    if(!impl->isAttachmentEnabled){
+        setAttachmentEnabled(true);
+    } else {
+        impl->updateAttachment(true);
+    }
+    return isAttachedToParentBody();
 }
 
 
@@ -1632,7 +1649,7 @@ Link* BodyItem::Impl::attachToBodyItem(BodyItem* bodyItem)
                     attachment->on(true);
                     attachmentToParent = attachment;
                     linkToAttach = holder->link();
-                    Position T_offset = holder->T_local_org() * attachment->T_local_org().inverse(Eigen::Isometry);
+                    Position T_offset = holder->T_local() * attachment->T_local().inverse(Eigen::Isometry);
                     body->rootLink()->setOffsetPosition(T_offset);
                     setLocationEditable(false, false);
                     mvout() << format(_("{0} has been attached to {1} of {2}."),
@@ -1664,7 +1681,7 @@ void BodyItem::Impl::onParentBodyKinematicStateChanged()
         parentLink = parentBodyItem->body()->rootLink();
     }
     auto rootLink = body->rootLink();
-    rootLink->setPosition(parentLink->Ta() * rootLink->Tb());
+    rootLink->setPosition(parentLink->T() * rootLink->Tb());
 
     isKinematicStateChangeNotifiedByParentBodyItem = true;
     isProcessingInverseKinematicsIncludingParentBody = false;

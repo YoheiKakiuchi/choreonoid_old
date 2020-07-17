@@ -509,12 +509,12 @@ void SpringheadLink::addMesh(MeshExtractor* extractor, SpringheadBody* sprBody)
 	/*
 	if(meshProp->prism){
 			Message::Out("converting to prism: %d vertices", mesh.positions.size());
-			// 角柱化する場合，各面から三角柱をつくる
+			//
 			Vec3f dir = meshProp->prismdir;
 
 			uint n = (uint)mesh.positions.size();
 			for(uint j = 0; j < n; j += 3){
-				// プリズム化の向きに対して反対向きの面はスキップ
+				//
 				if(mesh.normals[j+0] * dir <= 0.0) continue;
 				if(mesh.normals[j+1] * dir <= 0.0) continue;
 				if(mesh.normals[j+2] * dir <= 0.0) continue;
@@ -523,7 +523,7 @@ void SpringheadLink::addMesh(MeshExtractor* extractor, SpringheadBody* sprBody)
 				Vec3f v, vp;
 				for(int k = 0; k < 3; k++){
 					v = mesh.positions[j+k];
-					// 角柱の底面に射影した点
+					//
 					float s = - (v * dir) / (dir * dir);
 					vp = v + s * dir;
 					cd.vertices.push_back(v);
@@ -692,8 +692,8 @@ void SpringheadBody::setExtraJoints()
 
         if(sprLinkPair[1]){
 			Link* link = sprLinkPair[0]->link;
-            Vector3 p = link->attitude() * extraJoint.point[0] + link->p();
-            Vector3 a = link->attitude() * extraJoint.axis;
+            Vector3 p = link->R() * extraJoint.point[0] + link->p();
+            Vector3 a = link->R() * extraJoint.axis;
             
             // \todo do the destroy management for these joints
             if(extraJoint.type == ExtraJoint::EJ_PISTON){

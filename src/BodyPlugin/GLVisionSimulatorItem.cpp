@@ -623,7 +623,7 @@ SensorRenderer::SensorRenderer(GLVisionSimulatorItemImpl* simImpl, Device* devic
             resolution /= 2;   //screen resolution
 
             Matrix3 R[6];
-            R[FRONT_SCREEN] = camera->localRotaion();
+            R[FRONT_SCREEN] = camera->R_local();
             if(numScreens > 1){
                 R[RIGHT_SCREEN]  = R[FRONT_SCREEN] * AngleAxis(radian(-90.0), Vector3::UnitY());
                 R[LEFT_SCREEN]   = R[FRONT_SCREEN] * AngleAxis(radian(90.0),  Vector3::UnitY());
@@ -688,7 +688,7 @@ SensorRenderer::SensorRenderer(GLVisionSimulatorItemImpl* simImpl, Device* devic
             }
 
             double centerAngle = yawOffset + adjustedYawRange / 2.0;
-            Matrix3 R = rangeSensor->localRotaion() * AngleAxis(centerAngle, Vector3::UnitY());
+            Matrix3 R = rangeSensor->R_local() * AngleAxis(centerAngle, Vector3::UnitY());
             rangeSensorForRendering->setLocalRotation(R);
             yawOffset += adjustedYawRange;
 
@@ -845,7 +845,7 @@ SgCamera* SensorScreenRenderer::initializeCamera(int bodyIndex)
                 persCamera->setFarClipDistance(cameraForRendering->farClipDistance());
                 persCamera->setFieldOfView(radian(90.0));
                 auto cameraPos = new SgPosTransform();
-                cameraPos->setTransform(camera->link()->Rs().transpose() * cameraForRendering->T_local());
+                cameraPos->setTransform(cameraForRendering->T_local());
                 cameraPos->addChild(persCamera);
                 sceneLink->addChild(cameraPos);
                 pixelWidth = cameraForRendering->resolutionX();
@@ -860,7 +860,7 @@ SgCamera* SensorScreenRenderer::initializeCamera(int bodyIndex)
             persCamera->setNearClipDistance(rangeSensorForRendering->minDistance());
             persCamera->setFarClipDistance(rangeSensorForRendering->maxDistance());
             auto cameraPos = new SgPosTransform();
-            cameraPos->setTransform(rangeSensor->link()->Rs().transpose() * rangeSensorForRendering->T_local());
+            cameraPos->setTransform(rangeSensorForRendering->T_local());
             cameraPos->addChild(persCamera);
             sceneLink->addChild(cameraPos);
 

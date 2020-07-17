@@ -18,6 +18,7 @@
 #include <cnoid/WorldItem>
 #include <cnoid/RootItem>
 #include <cnoid/EigenUtil>
+#include <cnoid/UTF8>
 #include <cnoid/PolymorphicFunctionSet>
 #include <cnoid/NullOut>
 #include <cnoid/stdx/filesystem>
@@ -358,28 +359,25 @@ Link* LinkInfo::createLink(Body* body_)
 
     if(parent){
         origin = pose * jointInfo->pose;
-        link->setOffsetTranslation(origin.translation() -
-                parent->origin.translation());
+        link->setOffsetPosition(parent->origin.inverse(Eigen::Isometry) * origin);
     }else{
         origin = pose;
-        link->setOffsetTranslation(origin.translation());
+        link->setOffsetPosition(origin);
     }
-    link->setAccumulatedSegmentRotation(origin.linear());
 
     link->setMass(m);
     Affine3 c_ = jointInfo->pose.inverse() * c;
-    link->setCenterOfMass(link->Rs() * c_.translation());
-    link->setInertia(link->Rs() * c_.linear() * I * c_.linear().transpose() * link->Rs().transpose());
+    link->setCenterOfMass(c_.translation());
+    link->setInertia(c_.linear() * I * c_.linear().transpose());
 
     setVisualShape(link);
     setCollisionShape(link);
-    link->updateShapeRs();
 
     link->setJointType( jointInfo->convertJointType() );
 
     Vector3 axis;
     jointInfo->convertAxis(axis);
-    link->setJointAxis(link->Rs() * axis);
+    link->setJointAxis(axis);
 
     double maxlimit = numeric_limits<double>::max();
     link->setJointRange(jointInfo->lower, jointInfo->upper);
@@ -399,10 +397,9 @@ Link* LinkInfo::createLink(Body* body_)
             ConvertForceSensorFrame(*it, (*it)->pose);
         }
 
-        const Matrix3& RsT = link->Rs();
         Affine3 pose0 = jointInfo->pose.inverse() * (*it)->pose;
-        device->setLocalTranslation(RsT * pose0.translation());
-        device->setLocalRotation(RsT * pose0.linear());
+        device->setLocalTranslation(pose0.translation());
+        device->setLocalRotation(pose0.linear());
         body->addDevice(device);
     }
 
@@ -1556,7 +1553,7 @@ SgTexture* SDFBodyLoaderImpl::convertTexture(MaterialInfo* material, const strin
                 gm.addResourceLocation(url, "FileSystem", "General", true);
                 gm.initialiseResourceGroup("General");
 
-                filesystem::path scriptDir(url);
+                filesystem::path scriptDir(fromUTF8(url));
                 if (filesystem::exists(scriptDir) && filesystem::is_directory(scriptDir)) {
                     vector<filesystem::path> files;
                     copy(filesystem::directory_iterator(scriptDir), filesystem::directory_iterator(),
@@ -1565,11 +1562,10 @@ SgTexture* SDFBodyLoaderImpl::convertTexture(MaterialInfo* material, const strin
 
                     for (vector<filesystem::path>::iterator it=files.begin(); it!=files.end(); it++){
                         if (it->filename().extension() == ".material") {
-                            filesystem::path fullPath = url / it->filename();
+                            filesystem::path fullPath = scriptDir / it->filename();
                             try {
-
-                                Ogre::DataStreamPtr stream = gm.openResource( fullPath.string(), "General" );
-                                Ogre::MaterialManager::getSingleton().parseScript( stream, "General" );
+                                Ogre::DataStreamPtr stream = gm.openResource(fullPath.string(), "General");
+                                Ogre::MaterialManager::getSingleton().parseScript(stream, "General");
                                 stream->close();
                             } catch (Ogre::Exception& e){
                                 cout << e.getFullDescription() << endl;

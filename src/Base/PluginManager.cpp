@@ -12,9 +12,11 @@
 #include "AppConfig.h"
 #include "MainWindow.h"
 #include <cnoid/ExecutablePath>
-#include <cnoid/FileUtil>
 #include <cnoid/Tokenizer>
 #include <cnoid/Config>
+#include <cnoid/FileUtil>
+#include <cnoid/UTF8>
+#include <cnoid/stdx/filesystem>
 #include <QLibrary>
 #include <QRegExp>
 #include <QFileDialog>
@@ -33,6 +35,7 @@
 
 using namespace std;
 using namespace cnoid;
+using fmt::format;
 namespace filesystem = cnoid::stdx::filesystem;
 
 
@@ -124,7 +127,7 @@ public:
     void clearUnusedPlugins();
     void scanPluginFilesInPathList(const std::string& pathList);
     void scanPluginFilesInDirectoyOfExecFile();
-    void scanPluginFiles(const std::string& pathString, bool isRecursive);
+    void scanPluginFiles(const std::string& pathString, bool isUTF8, bool isRecursive);
     void loadPlugins();
     void unloadPluginsActually();
     bool finalizePlugins();
@@ -188,13 +191,11 @@ PluginManager::Impl::Impl(ExtensionManager* ext)
       unloadPluginsLater([&](){ unloadPluginsActually(); }, LazyCaller::PRIORITY_LOW),
       reloadPluginsLater([&](){ loadPlugins(); }, LazyCaller::PRIORITY_LOW)
 {
-    pluginDirectory = getNativePathString(
-        filesystem::path(executableTopDirectory()) / CNOID_PLUGIN_SUBDIR);
+    pluginDirectory = cnoid::pluginDir();
 
 #ifdef Q_OS_WIN32
     // Add the plugin directory to PATH
-    auto newPath = QString("%1;%2").arg(pluginDirectory.c_str()).arg(qEnvironmentVariable("PATH"));
-    qputenv("PATH", newPath.toLocal8Bit());
+    qputenv("PATH", format("{0};{1}", fromUTF8(pluginDirectory), qgetenv("PATH")).c_str());
 #endif
 
     pluginNamePattern.setPattern(
@@ -300,7 +301,7 @@ void PluginManager::scanPluginFilesInPathList(const std::string& pathList)
 void PluginManager::Impl::scanPluginFilesInPathList(const std::string& pathList)
 {
     for(auto& path : Tokenizer<CharSeparator<char>>(pathList, CharSeparator<char>(PATH_DELIMITER))){
-        scanPluginFiles(path, false);
+        scanPluginFiles(path, false, false);
     }
 }
 
@@ -313,50 +314,65 @@ void PluginManager::scanPluginFilesInDirectoyOfExecFile()
 
 void PluginManager::Impl::scanPluginFilesInDirectoyOfExecFile()
 {
-    scanPluginFiles(pluginDirectory, false);
+    scanPluginFiles(pluginDirectory, true, false);
 } 
 
 
 void PluginManager::scanPluginFiles(const std::string& pathString)
 {
-    impl->scanPluginFiles(pathString, false);
+    impl->scanPluginFiles(pathString, true, false);
 }
 
 
-void PluginManager::Impl::scanPluginFiles(const std::string& pathString, bool isRecursive)
+void PluginManager::Impl::scanPluginFiles(const std::string& pathString, bool isUTF8, bool isRecursive)
 {
-    filesystem::path pluginPath(pathString);
+    filesystem::path pluginPath;
+    if(isUTF8){
+        pluginPath = fromUTF8(pathString);
+    } else {
+        pluginPath = pathString;
+    }
 
     if(filesystem::exists(pluginPath)){
         if(filesystem::is_directory(pluginPath)){
             if(!isRecursive){
-
                 static const bool doSorting = false;
                 filesystem::directory_iterator end;
                 if(doSorting){
                     list<string> paths;
                     for(filesystem::directory_iterator it(pluginPath); it != end; ++it){
-                        paths.push_back(getNativePathString(*it));
+                        auto path(it->path());
+                        paths.push_back(path.make_preferred().string());
                     }
                     paths.sort();
                     for(list<string>::iterator p = paths.begin(); p != paths.end(); ++p){
-                        scanPluginFiles(*p, true);
+                        scanPluginFiles(*p, false, true);
                     }
                 } else {
                     for(filesystem::directory_iterator it(pluginPath); it != end; ++it){
-                        scanPluginFiles(getNativePathString(*it), true);
+                        auto path(it->path());
+                        scanPluginFiles(path.make_preferred().string(), false, true);
                     }
                 }
             }
         } else {
-            QString filename(getFilename(pluginPath).c_str());
+            const string* pPathStringUtf8; //pluginPath;
+            string tmpPathStringUtf8;
+            if(isUTF8){
+                pPathStringUtf8 = &pathString;
+            } else {
+                tmpPathStringUtf8 = toUTF8(pathString);
+                pPathStringUtf8 = &tmpPathStringUtf8;
+            }
+            const string& pathStringUtf8 = *pPathStringUtf8;
+            QString filename(filesystem::path(pathStringUtf8).filename().string().c_str());
             if(!namingConventionCheck->isChecked() || pluginNamePattern.exactMatch(filename)){
-                PluginMap::iterator p = pathToPluginInfoMap.find(pathString);
+                PluginMap::iterator p = pathToPluginInfoMap.find(pathStringUtf8);
                 if(p == pathToPluginInfoMap.end()){
                     PluginInfoPtr info = std::make_shared<PluginInfo>();
-                    info->pathString = pathString;
+                    info->pathString = pathStringUtf8;
                     allPluginInfos.push_back(info);
-                    pathToPluginInfoMap[pathString] = info;
+                    pathToPluginInfoMap[info->pathString] = info;
                 }
             }
         }
@@ -442,7 +458,7 @@ void PluginManager::Impl::loadPlugins()
                                 lacks += info->requisites[j];
                             }
                         }
-                        mv->putln(fmt::format(_("{0}-plugin cannot be initialized because required plugin(s) {1} are not found."),
+                        mv->putln(format(_("{0}-plugin cannot be initialized because required plugin(s) {1} are not found."),
                                 info->name, lacks));
                     }
                 }
@@ -488,7 +504,7 @@ bool PluginManager::Impl::loadPlugin(int index)
         }
         
         if(!(info->dll.load())){
-            mv->putln(MessageView::Error, info->dll.errorString());
+            mv->putln(QString("System error: ") + info->dll.errorString(), MessageView::Error);
 
         } else {
             QFunctionPointer symbol = info->dll.resolve("getChoreonoidPlugin");
@@ -679,13 +695,14 @@ void PluginManager::Impl::onLoadPluginTriggered()
     dialog.setNameFilters(filters);
 
     MappingPtr config = AppConfig::archive()->openMapping("PluginManager");
-    dialog.setDirectory(config->get("pluginLoadingDialogDirectory", executableTopDirectory()).c_str());
+    dialog.setDirectory(config->get("pluginLoadingDialogDirectory", executableTopDir()).c_str());
     
     if(dialog.exec()){
         config->writePath("pluginLoadingDialogDirectory", dialog.directory().absolutePath().toStdString());
         QStringList filenames = dialog.selectedFiles();
         for(int i=0; i < filenames.size(); ++i){
-            string filename = getNativePathString(filesystem::path(filenames[i].toStdString()));
+            auto path = filesystem::path(fromUTF8(filenames[i].toStdString()));
+            string filename = toUTF8(path.make_preferred().string());
 
             // This code was taken from 'scanPluginFiles'. This should be unified.
             //if(pluginNamePattern.exactMatch(QString(getFilename(pluginPath).c_str()))){
