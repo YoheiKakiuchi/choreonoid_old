@@ -16,6 +16,10 @@
 #include <list>
 #include "gettext.h"
 
+// add //
+#include <iostream>
+#include "Readline.h"
+
 using namespace std;
 using namespace cnoid;
 
@@ -97,6 +101,13 @@ public:
     
     virtual void keyPressEvent(QKeyEvent* event);
     virtual void insertFromMimeData(const QMimeData* source);
+
+    // add //
+    readlineAdaptor *rl_adaptor;
+
+public Q_SLOTS:
+    void putCommand(const QString &com);
+
 };
 
 }
@@ -150,7 +161,7 @@ PythonConsoleView::PythonConsoleView()
 
 
 PythonConsoleViewImpl::PythonConsoleViewImpl(PythonConsoleView* self)
-    : self(self)
+    : self(self), rl_adaptor(nullptr)
 {
     isConsoleInMode = false;
     inputColumnOffset = 0;
@@ -217,8 +228,16 @@ PythonConsoleViewImpl::PythonConsoleViewImpl(PythonConsoleView* self)
     
     prompt = ">>> ";
     putPrompt();
-}
 
+    // add //
+    rl_adaptor = new readlineAdaptor();
+
+    connect(rl_adaptor, &readlineAdaptor::sendRequest,
+            this, &PythonConsoleViewImpl::putCommand,
+            Qt::BlockingQueuedConnection);  //Qt::DirectConnection);
+
+    rl_adaptor->startThread();
+}
 
 PythonConsoleView::~PythonConsoleView()
 {
@@ -229,7 +248,9 @@ PythonConsoleView::~PythonConsoleView()
 
 PythonConsoleViewImpl::~PythonConsoleViewImpl()
 {
-
+    if (!!rl_adaptor) {
+        rl_adaptor->setTerminate();
+    }
 }
 
 
@@ -250,6 +271,9 @@ void PythonConsoleViewImpl::put(const QString& message)
     moveCursor(QTextCursor::End);
     insertPlainText(message);
     moveCursor(QTextCursor::End);
+
+    std::cout << message.toStdString();
+    std::flush(std::cout);
 }
 
 
@@ -699,4 +723,39 @@ void PythonConsoleViewImpl::insertFromMimeData(const QMimeData* source)
             }
         }
     }
+}
+
+// add //
+void PythonConsoleViewImpl::putCommand(const QString &com)
+{
+    //
+    moveCursor(QTextCursor::End);
+    insertPlainText(com + "\n");
+    moveCursor(QTextCursor::End);
+    //
+    python::gil_scoped_acquire lock;
+
+    orgStdout = sys.attr("stdout");
+    orgStderr = sys.attr("stderr");
+    orgStdin = sys.attr("stdin");
+
+    sys.attr("stdout") = consoleOut;
+    sys.attr("stderr") = consoleOut;
+    sys.attr("stdin") = consoleIn;
+
+    if(interpreter.attr("push")(com.toStdString()).cast<bool>()){
+        setPrompt("... ");
+    } else {
+        setPrompt(">>> ");
+    }
+
+    if(PyErr_Occurred()){
+        PyErr_Print();
+    }
+
+    sys.attr("stdout") = orgStdout;
+    sys.attr("stderr") = orgStderr;
+    sys.attr("stdin") = orgStdin;
+
+    putPrompt();
 }
